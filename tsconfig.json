@@ -1,0 +1,31 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+        "experimentalDecorators": true,
+		"target": "ESNext",
+		"lib": ["ESNext"],
+		"module": "NodeNext",
+		"allowSyntheticDefaultImports": true,
+		"moduleResolution": "NodeNext",
+		"outDir": "./dist",
+		"strict": true,
+		"strictNullChecks": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"preserveConstEnums": false,
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+		"strictBindCallApply": true,
+		"strictFunctionTypes": true
+	},
+	"buildOptions": {
+		"verbose": true
+	},
+	"include": ["src/**/*"],
+	"exclude": [
+		"./node_modules/**/*",
+		"**/*/__test__/**/*",
+		"**/*/__tests__/**/*"
+	]
+}

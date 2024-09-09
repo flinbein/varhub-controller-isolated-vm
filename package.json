@@ -1,0 +1,32 @@
+{
+  "name": "@flinbein/varhub-controller-isolated-vm",
+  "version": "0.0.1",
+  "description": "",
+  "type": "module",
+  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "test": "node --import=./test/register.js --test --test-reporter spec ./test/**/*.test.ts",
+    "build": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flinbein/varhub-controller-isolated-vm.git"
+  },
+  "author": "dpohvar@gmail.com",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/flinbein/varhub-controller-isolated-vm/issues"
+  },
+  "homepage": "https://github.com/flinbein/varhub-controller-isolated-vm#readme",
+  "dependencies": {
+    "isolated-vm": "^5.0.1"
+  },
+  "devDependencies": {
+    "@flinbein/varhub": "git+https://github.com/flinbein/varhub#1.4.2",
+    "@types/node": "^22.5.4",
+    "husky": "^9.1.5",
+    "typescript": "^5.6.2",
+    "ts-node": "^11.0.0-beta.1"
+  }
+}
