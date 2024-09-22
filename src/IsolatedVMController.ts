@@ -15,6 +15,8 @@ export interface ControllerCode {
 
 export interface ControllerOptions {
 	apiHelperController?: ApiHelperController,
+	inspector?: boolean;
+	memoryLimitMb?: number;
 	rpcController?: RPCController;
 	playerController?: PlayerController;
 	config?: {};
@@ -40,7 +42,10 @@ export class IsolatedVMController extends TypedEventEmitter<IsolatedVMController
 			this.#room = room;
 			this.#source = {...code.source};
 			const configJson = JSON.stringify(options.config) ?? "undefined";
-			this.#program = new IsolatedVMProgram(this.#getSource);
+			this.#program = new IsolatedVMProgram(this.#getSource, {
+				inspector: options.inspector,
+				memoryLimitMb: options.memoryLimitMb
+			});
 			void this.#program.createModule("varhub:config", `export default ${configJson}`, 'js');
 			this.#apiHelperController = options.apiHelperController;
 			this.#rpcController = options.rpcController ?? new RPCController(room);

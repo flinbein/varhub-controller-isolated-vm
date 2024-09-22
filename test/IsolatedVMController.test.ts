@@ -720,6 +720,57 @@ describe("test controller",() => {
 		await client.call("add", 10);
 		assert.equal(await client.call("getCounter"), 15, "effector counter works");
 	});
+	
+	it("import with network plugin", {timeout: 10500}, async () => {
+		const code: ControllerCode = {
+			main: "index.js",
+			source: {
+				"index.js": /* language=JavaScript */ `
+                    import a from 'https://test/a'
+                    import b from 'https://test/b'
+                    export const test = () => [a, b];
+				`
+			}
+		}
+		
+		const room = new Room();
+		
+		const fetched = [];
+		class MockNetwork implements ApiHelper {
+			async fetch(url: string){
+				fetched.push(url);
+				if (url.endsWith("a")) return {
+					url,
+					ok: true,
+					type: "text",
+					statusText: "OK",
+					redirected: false,
+					status: 200,
+					headers: {"content-type": "application/javascript; charset=utf-8"},
+					body: /* language=javascript*/ `export default "hello"+"world"`,
+				}
+				if (url.endsWith("b")) return {
+					url,
+					ok: true,
+					type: "text",
+					statusText: "OK",
+					redirected: false,
+					status: 200,
+					headers: {"content-type": "application/json; charset=utf-8"},
+					body: /* language=json*/ `{"a": [10]}`,
+				}
+				throw new Error("wrong network params");
+			}
+			[Symbol.dispose](){}
+		}
+		
+		using ctrl = new IsolatedVMController(room, code, {
+			apiHelperController: new ApiHelperController(room, {network: MockNetwork})
+		});
+		await ctrl.startAsync();
+		const client = new Client(room, "Bob").join();
+		assert.deepEqual(await client.call("test"), ["helloworld", {a: [10]}], "effector counter works");
+	})
 
 	it("receive events on join", {timeout: 200}, async () => {
 		const code: ControllerCode = {
