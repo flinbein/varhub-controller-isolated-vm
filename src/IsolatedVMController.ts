@@ -40,6 +40,7 @@ export class IsolatedVMController extends TypedEventEmitter<IsolatedVMController
 		super();
 		try {
 			this.#room = room;
+			room.on("destroy", this[Symbol.dispose].bind(this));
 			this.#source = {...code.source};
 			const configJson = JSON.stringify(options.config) ?? "undefined";
 			this.#program = new IsolatedVMProgram(this.#getSource, {
