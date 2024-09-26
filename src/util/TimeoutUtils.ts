@@ -128,8 +128,8 @@ export function createTimeoutUtils (context: Context) {
 	
 	return () => {
 		timersRef.release();
-		timeoutMap.values().forEach(clearTimeout);
-		intervalMap.values().forEach(clearInterval);
-		immediateMap.values().forEach(clearImmediate);
+		[...timeoutMap.values()].forEach(clearTimeout);
+		[...intervalMap.values()].forEach(clearInterval);
+		[...immediateMap.values()].forEach(clearImmediate);
 	};
 }
