@@ -43,7 +43,6 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 		this.#inspector = inspector;
 		this.#getModuleSource = getSource;
 		this.#isolate = new IVM.Isolate({memoryLimit: memoryLimitMb, inspector: inspector});
-		this.#addDisposeHook(() => this.#isolate.dispose());
 		this.#addDisposeHook(
 			startIsolateCounter(this.#isolate, this, 1000, 200000000n)
 		);
@@ -125,7 +124,11 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 	createInspectorSession(): IsolatedVMProgramInspector {
 		if (!this.#inspector) throw new Error("inspector is disabled");
 		const inspector = this.#isolate.createInspectorSession();
-		return new IsolatedVMProgramInspector(inspector);
+		const programInspector = new IsolatedVMProgramInspector(inspector);
+		const onDispose = () => programInspector.dispose();
+		this.#addDisposeHook(onDispose);
+		programInspector.on("dispose", () => this.#deleteDisposeHook(onDispose));
+		return programInspector;
 	}
 	
 	readonly #builtinModuleNames = new Set<string>;
@@ -198,6 +201,9 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 	#addDisposeHook(hook: () => void) {
 		this.#disposeHooks.add(hook);
 	}
+	#deleteDisposeHook(hook: () => void) {
+		this.#disposeHooks.delete(hook);
+	}
 	
 	dispose(){
 		this[Symbol.dispose]();
@@ -210,6 +216,7 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 	}
 	
 	[Symbol.dispose](): void {
+		if (this.#isDisposed) throw new Error("program is already disposed");
 		for (let disposeHook of this.#disposeHooks) try {
 			disposeHook();
 		} catch {}
@@ -271,6 +278,7 @@ function startIsolateCounter(isolate: Isolate, program: IsolatedVMProgram, check
 export type IsolatedVMInspectorEvents = {
 	response: [number, string];
 	notification: [string];
+	dispose: [];
 }
 export class IsolatedVMProgramInspector extends TypedEventEmitter<IsolatedVMInspectorEvents> implements Disposable {
 	#session: InspectorSession
@@ -299,7 +307,14 @@ export class IsolatedVMProgramInspector extends TypedEventEmitter<IsolatedVMInsp
 		this[Symbol.dispose]();
 	}
 	
+	#isDisposed = false;
+	get isDisposed() {
+		return this.#isDisposed;
+	}
 	[Symbol.dispose](){
+		if (this.#isDisposed) throw new Error("Inspector is already disposed");
+		this.#isDisposed = true;
 		this.#session.dispose();
+		this.emit("dispose");
 	}
 }

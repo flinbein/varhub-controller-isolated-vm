@@ -59,9 +59,9 @@ describe("test program", {timeout: 3500},async () => {
 		assert.equal(result2, 21);
 		await assert.rejects(indexModule.callMethod("throwIncrement", undefined, 30), e => e === 31);
 		await assert.rejects(indexModule.callMethod("throwAsyncIncrement", undefined, 40), e => e === 41);
-		
+
 	});
-	
+
 	await it("cross import js", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -74,14 +74,14 @@ describe("test program", {timeout: 3500},async () => {
 				export const x = 10;
 			`,
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
-		
+
 		const result1 = await indexModule.callMethod("test");
 		assert.equal(result1, 110);
 	});
-	
+
 	await it("cross import json", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -94,14 +94,14 @@ describe("test program", {timeout: 3500},async () => {
               {"items": [0, 100, 200]}
 			`,
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
-		
+
 		const result1 = await indexModule.callMethod("test");
 		assert.equal(result1, 200);
 	});
-	
+
 	await it("remote module", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -111,21 +111,21 @@ describe("test program", {timeout: 3500},async () => {
 				}
 			`,
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
-		
+
 		const result1 = await indexModule.callMethod("test");
 		assert.equal(result1, "function");
 	});
-	
+
 	await it("deadlocks", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
 				export function cycle(x){while (x --> 0){}}
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
 		await indexModule.callMethod("cycle", null, 1, "no deadlock in 1");
@@ -137,14 +137,14 @@ describe("test program", {timeout: 3500},async () => {
 		);
 		assert.ok(program.isDisposed);
 	})
-	
+
 	await it("deadlocks async", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
 				export async function asyncCycle(x){while (x --> 0){}}
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
 		await indexModule.callMethod("asyncCycle", null, 1, "no deadlock in 1");
@@ -156,7 +156,7 @@ describe("test program", {timeout: 3500},async () => {
 		);
 		assert.ok(program.isDisposed);
 	});
-	
+
 	await it("deadlocks memo 8mb", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -172,7 +172,7 @@ describe("test program", {timeout: 3500},async () => {
 				}
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig, {memoryLimitMb: 8});
 		const indexModule = await program.getModule("index.js");
 		await indexModule.callMethod("test", null, 1, "no memory leak in 1mb");
@@ -183,7 +183,7 @@ describe("test program", {timeout: 3500},async () => {
 		);
 		await indexModule.callMethod("test", null, 2, "no memory leak in 2mb");
 	});
-	
+
 	await it("deadlocks memo 128mb", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -199,7 +199,7 @@ describe("test program", {timeout: 3500},async () => {
 				}
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig, {memoryLimitMb: 128});
 		const indexModule = await program.getModule("index.js");
 		await indexModule.callMethod("test", null, 100, "no memory leak in 100mb");
@@ -209,7 +209,7 @@ describe("test program", {timeout: 3500},async () => {
 		);
 		await indexModule.callMethod("test", null, 90, "no memory leak in 90mb");
 	});
-	
+
 	await it("simple inner module", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `export * from "#inner";`,
@@ -217,13 +217,13 @@ describe("test program", {timeout: 3500},async () => {
 			"evil.js": /* language=JavaScript */ `export * from "holy.js#inner";`,
 			"holy.js#inner": /* language=JavaScript */ `export const name = "holy-inner";`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		const indexModule = await program.getModule("index.js");
 		assert.equal(await indexModule.getProp("name"), "index-inner");
 		await assert.rejects(program.getModule("evil.js"));
 	});
-	
+
 	await it("create module", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -233,14 +233,14 @@ describe("test program", {timeout: 3500},async () => {
                 }
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		void program.createModule("test:outer", `export const outer = {value: 10}`, 'js');
 		const indexModule = await program.getModule("index.js");
 		assert.equal(await indexModule.callMethod("test", null), 10);
 	})
-	
-	
+
+
 	await it("create module json", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -250,24 +250,38 @@ describe("test program", {timeout: 3500},async () => {
 				}
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		void program.createModule("test:config", `{"value": 20}`, 'json');
 		const indexModule = await program.getModule("index.js");
 		assert.equal(await indexModule.callMethod("test", null), 20);
 	});
-	
+
 	await it("clear all timers", {timeout: 3500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
-				let i=0;
-				setInterval(() => {
+                let i=0;
+                setInterval(() => {
                     i++;
-				}, 10);
+                }, 10);
 			`
 		});
-		
+
 		using program = new IsolatedVMProgram(sourceConfig);
 		await program.getModule("index.js");
+	})
+	
+	await it("disposable with inspector", {timeout: 3500}, async () => {
+		const sourceConfig = sources({"index.js": /* language=JavaScript */ `console.log('1')`});
+		const program = new IsolatedVMProgram(sourceConfig, {inspector: true});
+		const inspector1 = program.createInspectorSession();
+		const inspector2 = program.createInspectorSession();
+		const inspector3 = program.createInspectorSession();
+		inspector1.dispose();
+		assert.ok(inspector1.isDisposed, "inspector1 is not disposed");
+		program.dispose();
+		assert.ok(program.isDisposed, "program is not disposed");
+		assert.ok(inspector2.isDisposed, "inspector2 is not disposed");
+		assert.ok(inspector3.isDisposed, "inspector3 is not disposed");
 	})
 });

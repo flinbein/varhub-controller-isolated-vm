@@ -19,7 +19,6 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         this.#inspector = inspector;
         this.#getModuleSource = getSource;
         this.#isolate = new IVM.Isolate({ memoryLimit: memoryLimitMb, inspector: inspector });
-        this.#addDisposeHook(() => this.#isolate.dispose());
         this.#addDisposeHook(startIsolateCounter(this.#isolate, this, 1000, 200000000n));
         const context = this.#context = this.#isolate.createContextSync({ inspector: inspector });
         this.#addDisposeHook(createTimeoutUtils(context));
@@ -85,7 +84,11 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         if (!this.#inspector)
             throw new Error("inspector is disabled");
         const inspector = this.#isolate.createInspectorSession();
-        return new IsolatedVMProgramInspector(inspector);
+        const programInspector = new IsolatedVMProgramInspector(inspector);
+        const onDispose = () => programInspector.dispose();
+        this.#addDisposeHook(onDispose);
+        programInspector.on("dispose", () => this.#deleteDisposeHook(onDispose));
+        return programInspector;
     }
     #builtinModuleNames = new Set;
     setBuiltinModuleName(moduleName, builtin) {
@@ -161,6 +164,9 @@ export class IsolatedVMProgram extends TypedEventEmitter {
     #addDisposeHook(hook) {
         this.#disposeHooks.add(hook);
     }
+    #deleteDisposeHook(hook) {
+        this.#disposeHooks.delete(hook);
+    }
     dispose() {
         this[Symbol.dispose]();
     }
@@ -169,6 +175,8 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         return this.#isDisposed;
     }
     [Symbol.dispose]() {
+        if (this.#isDisposed)
+            throw new Error("program is already disposed");
         for (let disposeHook of this.#disposeHooks)
             try {
                 disposeHook();
@@ -245,7 +253,15 @@ export class IsolatedVMProgramInspector extends TypedEventEmitter {
     dispose() {
         this[Symbol.dispose]();
     }
+    #isDisposed = false;
+    get isDisposed() {
+        return this.#isDisposed;
+    }
     [Symbol.dispose]() {
+        if (this.#isDisposed)
+            throw new Error("Inspector is already disposed");
+        this.#isDisposed = true;
         this.#session.dispose();
+        this.emit("dispose");
     }
 }
