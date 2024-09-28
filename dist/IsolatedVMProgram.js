@@ -176,7 +176,7 @@ export class IsolatedVMProgram extends TypedEventEmitter {
     }
     [Symbol.dispose]() {
         if (this.#isDisposed)
-            throw new Error("program is already disposed");
+            return;
         for (let disposeHook of this.#disposeHooks)
             try {
                 disposeHook();
@@ -259,7 +259,7 @@ export class IsolatedVMProgramInspector extends TypedEventEmitter {
     }
     [Symbol.dispose]() {
         if (this.#isDisposed)
-            throw new Error("Inspector is already disposed");
+            return;
         this.#isDisposed = true;
         this.#session.dispose();
         this.emit("dispose");

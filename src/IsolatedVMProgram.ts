@@ -1,6 +1,6 @@
 import IVM, {
 	type Context,
-	InspectorSession,
+	type InspectorSession,
 	type Isolate,
 	type Module,
 	type Reference,
@@ -216,7 +216,7 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 	}
 	
 	[Symbol.dispose](): void {
-		if (this.#isDisposed) throw new Error("program is already disposed");
+		if (this.#isDisposed) return;
 		for (let disposeHook of this.#disposeHooks) try {
 			disposeHook();
 		} catch {}
@@ -312,7 +312,7 @@ export class IsolatedVMProgramInspector extends TypedEventEmitter<IsolatedVMInsp
 		return this.#isDisposed;
 	}
 	[Symbol.dispose](){
-		if (this.#isDisposed) throw new Error("Inspector is already disposed");
+		if (this.#isDisposed) return;
 		this.#isDisposed = true;
 		this.#session.dispose();
 		this.emit("dispose");
