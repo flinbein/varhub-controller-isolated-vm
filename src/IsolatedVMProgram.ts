@@ -47,10 +47,9 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 			startIsolateCounter(this.#isolate, this, 1000, 200000000n)
 		);
 		const context = this.#context = this.#isolate.createContextSync({inspector: inspector});
-		this.#addDisposeHook(
-			createTimeoutUtils(context)
-		);
 		const safeContext = this.#safeContext = this.#isolate.createContextSync({inspector: false});
+		this.#addDisposeHook(createTimeoutUtils(context, context));
+		
 		const compileModuleRef: Reference<(...args: any) => Module> = safeContext.evalSync( /* language=javascript */
 			`(isolate, moduleName, code, metaObject) => isolate.compileModuleSync(code, {
     			filename: moduleName,
@@ -219,6 +218,9 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 		if (this.#isDisposed) return;
 		for (let disposeHook of this.#disposeHooks) try {
 			disposeHook();
+		} catch {}
+		try {
+			this.#isolate.dispose()
 		} catch {}
 		this.#isDisposed = true;
 		this.emit("dispose");

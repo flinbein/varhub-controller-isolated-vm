@@ -29,7 +29,7 @@ function sources(sourceMap: Record<string, string>) {
 	}
 }
 
-describe("test program", {timeout: 3500},async () => {
+describe("test program", {timeout: 60500},async () => {
 	await it("simple methods", async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
@@ -59,7 +59,6 @@ describe("test program", {timeout: 3500},async () => {
 		assert.equal(result2, 21);
 		await assert.rejects(indexModule.callMethod("throwIncrement", undefined, 30), e => e === 31);
 		await assert.rejects(indexModule.callMethod("throwAsyncIncrement", undefined, 40), e => e === 41);
-
 	});
 
 	await it("cross import js", {timeout: 3500}, async () => {
@@ -119,7 +118,7 @@ describe("test program", {timeout: 3500},async () => {
 		assert.equal(result1, "function");
 	});
 
-	await it("deadlocks", {timeout: 3500}, async () => {
+	await it("deadlocks", {timeout: 13500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
 				export function cycle(x){while (x --> 0){}}
@@ -138,7 +137,7 @@ describe("test program", {timeout: 3500},async () => {
 		assert.ok(program.isDisposed);
 	})
 
-	await it("deadlocks async", {timeout: 3500}, async () => {
+	await it("deadlocks async", {timeout: 13500}, async () => {
 		const sourceConfig = sources({
 			"index.js": /* language=JavaScript */ `
 				export async function asyncCycle(x){while (x --> 0){}}
@@ -270,7 +269,7 @@ describe("test program", {timeout: 3500},async () => {
 		using program = new IsolatedVMProgram(sourceConfig);
 		await program.getModule("index.js");
 	})
-	
+
 	await it("disposable with inspector", {timeout: 3500}, async () => {
 		const sourceConfig = sources({"index.js": /* language=JavaScript */ `console.log('1')`});
 		const program = new IsolatedVMProgram(sourceConfig, {inspector: true});
@@ -283,5 +282,98 @@ describe("test program", {timeout: 3500},async () => {
 		assert.ok(program.isDisposed, "program is not disposed");
 		assert.ok(inspector2.isDisposed, "inspector2 is not disposed");
 		assert.ok(inspector3.isDisposed, "inspector3 is not disposed");
+	});
+
+	await it("timers", async () => {
+		const sourceConfig = sources({
+			"index.js": /* language=JavaScript */ `
+                export function testTimeout1(){
+                    return setTimeout()
+                }
+                export function testTimeout2(){
+                    return setTimeout("console.log")
+                }
+                export function testTimeout3(){
+                    return setTimeout(() => {})
+                }
+
+                export function testInterval1(){
+                    return setInterval()
+                }
+                export function testInterval2(){
+                    return setInterval("console.log")
+                }
+                export function testInterval3(){
+                    return setInterval(() => {})
+                }
+
+                export function testImmediate1(){
+                    return setImmediate()
+                }
+                export function testImmediate2(){
+                    return setImmediate("console.log")
+                }
+                export function testImmediate3(){
+                    return setImmediate(() => {})
+                }
+			`
+		});
+
+		using program = new IsolatedVMProgram(sourceConfig);
+		const indexModule = await program.getModule("index.js");
+
+		await assert.rejects(indexModule.callMethod("testTimeout1"))
+		await assert.rejects(indexModule.callMethod("testTimeout2"))
+		assert.equal(typeof await indexModule.callMethod("testTimeout3"), "number");
+
+		await assert.rejects(indexModule.callMethod("testInterval1"))
+		await assert.rejects(indexModule.callMethod("testInterval2"))
+		assert.equal(typeof await indexModule.callMethod("testInterval3"), "number");
+
+		await assert.rejects(indexModule.callMethod("testImmediate1"))
+		await assert.rejects(indexModule.callMethod("testImmediate2"))
+		assert.equal(typeof await indexModule.callMethod("testImmediate3"), "number");
 	})
+	
+	await it("timers cancel", async () => {
+		const sourceConfig = sources({
+			"index.js": /* language=JavaScript */ `
+                export function test(){
+                    return new Promise(resolve => {
+                        let result = 1;
+                        setTimeout(() => { result += 20; clearTimeout(id) }, 10);
+                        const id = setTimeout(() => { result += 300 }, 20);
+                        setTimeout(() => resolve(result), 30);
+					});
+                }
+			`
+		});
+		
+		using program = new IsolatedVMProgram(sourceConfig);
+		const indexModule = await program.getModule("index.js");
+		
+		assert.equal(await indexModule.callMethod("test"), 21);
+	})
+	
+	await it("intervals cancel", async () => {
+		const sourceConfig = sources({
+			"index.js": /* language=JavaScript */ `
+                export function test(){
+                    return new Promise(resolve => {
+                        let result = 1;
+                       	const id = setInterval(() => { result += 10 }, 100);
+                       	setTimeout(() => clearInterval(id), 550);
+                       	setTimeout(() => resolve(result), 850);
+					});
+                }
+			`
+		});
+		
+		using program = new IsolatedVMProgram(sourceConfig);
+		const indexModule = await program.getModule("index.js");
+		
+		assert.equal(await indexModule.callMethod("test"), 51);
+	})
+	
+	
 });

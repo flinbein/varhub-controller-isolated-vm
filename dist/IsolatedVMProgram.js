@@ -21,8 +21,8 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         this.#isolate = new IVM.Isolate({ memoryLimit: memoryLimitMb, inspector: inspector });
         this.#addDisposeHook(startIsolateCounter(this.#isolate, this, 1000, 200000000n));
         const context = this.#context = this.#isolate.createContextSync({ inspector: inspector });
-        this.#addDisposeHook(createTimeoutUtils(context));
         const safeContext = this.#safeContext = this.#isolate.createContextSync({ inspector: false });
+        this.#addDisposeHook(createTimeoutUtils(context, context));
         const compileModuleRef = safeContext.evalSync(/* language=javascript */ `(isolate, moduleName, code, metaObject) => isolate.compileModuleSync(code, {
     			filename: moduleName,
                 meta: (metaVal) => Object.assign(metaVal, metaObject ?? {})
@@ -182,6 +182,10 @@ export class IsolatedVMProgram extends TypedEventEmitter {
                 disposeHook();
             }
             catch { }
+        try {
+            this.#isolate.dispose();
+        }
+        catch { }
         this.#isDisposed = true;
         this.emit("dispose");
     }

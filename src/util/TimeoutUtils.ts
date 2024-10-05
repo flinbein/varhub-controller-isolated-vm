@@ -1,7 +1,7 @@
 import IVM, { type Context, Reference } from "isolated-vm";
 import { clearInterval, clearTimeout } from "node:timers";
 
-export function createTimeoutUtils (context: Context) {
+export function createTimeoutUtils (context: Context, evalContext: Context) {
 	const timeoutMap = new Map<number, NodeJS.Timeout>();
 	const intervalMap = new Map<number, NodeJS.Timeout>();
 	const immediateMap = new Map<number, NodeJS.Immediate>();
@@ -16,16 +16,18 @@ export function createTimeoutUtils (context: Context) {
 	}
 	
 	// language=javascript
-	const createTimersRef: Reference<TimersRef> = context.evalSync(`
+	const createTimersRef: Reference<TimersRef> = evalContext.evalSync(`
 		const timeoutHooks = new Map();
 		const intervalHooks = new Map();
 		const immediateHooks = new Map();
         (hooks, global) => {
             Object.defineProperties(global, {
                 setTimeout: {
-                    value: (cb, t, ...args) => {
+                    value: (cb, t=0, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerTimeout(t);
                         timeoutHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearTimeout: {
@@ -35,9 +37,11 @@ export function createTimeoutUtils (context: Context) {
                     }
                 },
                 setInterval: {
-                    value: (cb, t, ...args) => {
+                    value: (cb, t=0, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerInterval(t);
                         intervalHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearInterval: {
@@ -48,8 +52,10 @@ export function createTimeoutUtils (context: Context) {
                 },
                 setImmediate: {
                     value: (cb, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerImmediate();
                         immediateHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearImmediate: {

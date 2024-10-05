@@ -1,21 +1,23 @@
 import IVM from "isolated-vm";
 import { clearInterval, clearTimeout } from "node:timers";
-export function createTimeoutUtils(context) {
+export function createTimeoutUtils(context, evalContext) {
     const timeoutMap = new Map();
     const intervalMap = new Map();
     const immediateMap = new Map();
     let timeoutId = 1, intervalId = 1, immediateId = 1;
     // language=javascript
-    const createTimersRef = context.evalSync(`
+    const createTimersRef = evalContext.evalSync(`
 		const timeoutHooks = new Map();
 		const intervalHooks = new Map();
 		const immediateHooks = new Map();
         (hooks, global) => {
             Object.defineProperties(global, {
                 setTimeout: {
-                    value: (cb, t, ...args) => {
+                    value: (cb, t=0, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerTimeout(t);
                         timeoutHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearTimeout: {
@@ -25,9 +27,11 @@ export function createTimeoutUtils(context) {
                     }
                 },
                 setInterval: {
-                    value: (cb, t, ...args) => {
+                    value: (cb, t=0, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerInterval(t);
                         intervalHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearInterval: {
@@ -38,8 +42,10 @@ export function createTimeoutUtils(context) {
                 },
                 setImmediate: {
                     value: (cb, ...args) => {
+                        if (typeof cb !== "function") throw new Error("callback must be a function");
                         const id = hooks.registerImmediate();
                         immediateHooks.set(id, () => cb(...args));
+                        return id;
                     }
                 },
                 clearImmediate: {
