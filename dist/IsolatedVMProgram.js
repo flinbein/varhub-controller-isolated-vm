@@ -14,6 +14,9 @@ export class IsolatedVMProgram extends TypedEventEmitter {
     #moduleNamesMap = new WeakMap();
     #moduleWrapperMap = new WeakMap();
     #wrapMaybeAsyncRef;
+    #getOwnPropertyNamesRef;
+    #getPropRef;
+    #constructRef;
     constructor(getSource, { memoryLimitMb = 8, inspector = false } = {}) {
         super();
         this.#inspector = inspector;
@@ -30,6 +33,9 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         this.#compileModuleHook = (isolate, moduleName, code, metaObject) => {
             return compileModuleRef.apply(undefined, [isolate, moduleName, code, metaObject], { result: { promise: true }, arguments: { copy: true } });
         };
+        this.#getOwnPropertyNamesRef = safeContext.evalSync(`Object.getOwnPropertyNames`, { reference: true });
+        this.#getPropRef = safeContext.evalSync(`(m,k)=>m[k]`, { reference: true });
+        this.#constructRef = safeContext.evalSync(`(c,...a)=>new c(...a)`, { reference: true });
         this.#wrapMaybeAsyncRef = this.#safeContext.evalSync(/* language=javascript */ `
             (callFnRef) => (...args) => {
                 const ref = callFnRef.applySync(undefined, [...args], {
@@ -52,6 +58,21 @@ export class IsolatedVMProgram extends TypedEventEmitter {
             
             }
 		`, { reference: true });
+    }
+    async getOwnNames(ref) {
+        return await this.#getOwnPropertyNamesRef.apply(undefined, [ref.derefInto()], { result: { copy: true } });
+    }
+    async startRpc(moduleName) {
+        const asRef = { result: { reference: true }, reference: true };
+        const sourceModule = await this.#getIsolatedModule(moduleName);
+        const rpcModule = await this.#getIsolatedModule("varhub:rpc");
+        const roomModule = await this.#getIsolatedModule("varhub:room");
+        const rpcConstructorRef = await rpcModule.namespace.get("default", asRef);
+        const rpcRef = await this.#constructRef.apply(undefined, [rpcConstructorRef.derefInto(), sourceModule.namespace.derefInto()], asRef);
+        const rpcStartMethodRef = await this.#getPropRef.apply(undefined, [rpcConstructorRef.derefInto(), "start"], asRef);
+        const roomRef = await roomModule.namespace.get("default", asRef);
+        await rpcStartMethodRef.apply(rpcConstructorRef.derefInto({ release: true }), [rpcRef.derefInto({ release: true }), roomRef.derefInto({ release: true }), "$rpc"], asRef);
+        rpcStartMethodRef.release();
     }
     createMaybeAsyncFunctionDeref(fn, opts) {
         const callFn = (...args) => {
@@ -104,7 +125,7 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         const foundModuleWrapper = this.#moduleWrapperMap.get(module);
         if (foundModuleWrapper)
             return foundModuleWrapper;
-        const moduleWrapper = new ProgramModule(module);
+        const moduleWrapper = new ProgramModule(module, this);
         this.#moduleWrapperMap.set(module, moduleWrapper);
         return moduleWrapper;
     }
@@ -192,11 +213,19 @@ export class IsolatedVMProgram extends TypedEventEmitter {
 }
 export class ProgramModule {
     #module;
-    constructor(module) {
+    #program;
+    constructor(module, program) {
         this.#module = module;
+        this.#program = program;
+    }
+    getDependencySpecifiers() {
+        return this.#module.dependencySpecifiers;
     }
     getType(prop) {
         return this.#module.namespace.getSync(prop, { reference: true })?.typeof;
+    }
+    getKeysAsync() {
+        return this.#program.getOwnNames(this.#module.namespace);
     }
     async callMethod(prop, thisValue, ...args) {
         const methodRef = await this.#module.namespace.get(prop, { reference: true });

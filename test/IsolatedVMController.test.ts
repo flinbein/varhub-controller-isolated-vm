@@ -1,14 +1,14 @@
-import assert from "node:assert";
+import * as assert from "node:assert";
 import { describe, it } from "node:test";
 import { EventEmitter } from "node:events";
 import { ControllerCode, IsolatedVMController } from "../src/IsolatedVMController.js";
 import { Room, ApiSource, ApiHelper, ApiHelperController, Connection, RPCController } from "@flinbein/varhub";
 
 class Counter implements ApiHelper {
-	#value = 0;
-	next = () => ++this.#value;
-	current = () => this.#value;
-	error = () => { throw this.#value }
+	_value = 0;
+	next = () => ++this._value;
+	current = () => this._value;
+	error = () => { throw this._value }
 	[Symbol.dispose](){}
 }
 
@@ -27,79 +27,88 @@ class Network implements ApiHelper {
 const apiSource: ApiSource = {Counter, Network}
 
 class Client {
-	#connection: Connection | undefined
-	readonly #room: Room;
-	readonly #id: string;
-	readonly #password: string | undefined;
-	readonly #config: unknown;
-	readonly #eventLog: unknown[] = [];
-	#nextRpcId = 0;
-	#rpcResultEmitter = new EventEmitter();
-	#rpcEventEmitter = new EventEmitter();
-	#closeReason: string | null | undefined = undefined;
-	constructor(room: Room, id: string, password?: string|undefined, config?: unknown) {
-		this.#room = room;
-		this.#id = id;
-		this.#password = password;
-		this.#config = config;
-		
+	private _connection: Connection | undefined
+	private readonly _room: Room;
+	private readonly _params: any[];
+	private readonly _eventLog: unknown[] = [];
+	private _nextRpcId = 0;
+	private _rpcResultEmitter = new EventEmitter();
+	private _rpcEventEmitter = new EventEmitter();
+	private _closeReason: string | null | undefined = undefined;
+	private _resolvers = (Promise as any).withResolvers();
+	constructor(room: Room, ...params: any[]) {
+		this._room = room;
+		this._params = params;
+		this._resolvers.promise.catch(() => {});
 	}
 	
-	join(){
-		this.#connection = this.#room.createConnection()
+	enter(): this {
+		this._connection = this._room.createConnection()
 			.on("disconnect", (ignored, reason) => {
-				this.#closeReason = reason;
-				for (let eventName of this.#rpcResultEmitter.eventNames()) {
-					this.#rpcResultEmitter.emit(eventName, 3);
+				this._resolvers.reject(reason);
+				this._closeReason = reason;
+				for (let eventName of this._rpcResultEmitter.eventNames()) {
+					this._rpcResultEmitter.emit(eventName, 3);
 				}
 			})
-			.on("event", (eventName, ...eventArgs) => {
-				const [eventId, ...args] = eventArgs;
-				if (eventName === "$rpcResult") {
-					this.#rpcResultEmitter.emit(eventId, ...args);
-				} else if (eventName === "$rpcEvent") {
-					this.#eventLog.push(eventArgs);
-					this.#rpcEventEmitter.emit(eventId, ...args);
+			.on("join", () => {
+				this._resolvers.resolve();
+			})
+			.on("event", (...eventArgs) => {
+				const [eventId, channelId, operationId, ...args] = eventArgs;
+				if (eventId !== "$rpc" || channelId !== undefined) return;
+				if (operationId === 0 || operationId === 3) {
+					const [callId, callResult] = args;
+					this._rpcResultEmitter.emit(callId, operationId, callResult);
+				}
+				if (operationId === 4) {
+					const [path, values] = args;
+					this._rpcEventEmitter.emit(path[0], ...values);
+					this._eventLog.push(args);
 				}
 			})
-			.enter(this.#id, this.#password, this.#config)
+			.enter(...this._params)
 		;
+		return this;
+	}
+	
+	then<R1 = [this], R2 = never>(
+		onfulfilled?: ((value: [this]) => R1 | PromiseLike<R1>) | undefined | null,
+		onrejected?: ((reason: any) => R2 | PromiseLike<R2>) | undefined | null
+	): PromiseLike<R1 | R2> {
+		return this._resolvers.promise.then(() => [this] as [this]).then(onfulfilled, onrejected);
+	};
+	
+	open(){
+		this._room!.join(this._connection!);
 		return this;
 	}
 
 	get eventLog(){
-		return this.#eventLog;
+		return this._eventLog;
 	}
 
 	get closeReason(){
-		return this.#closeReason;
+		return this._closeReason;
 	}
 
-	get config(){
-		return this.#config;
+	get params(){
+		return this._params;
 	}
-	get id(){
-		return this.#id;
-	}
-	get password(){
-		return this.#password;
-	}
+	
 	call(methodName: string, ...args: any[]): unknown {
-		const rpcId = this.#nextRpcId++;
+		if (this.status !== "joined") throw new Error("client not joined");
+		const rpcId = this._nextRpcId++;
 		let code: [unknown, unknown] | undefined = undefined
 		let resolver: [(arg: unknown) => void, (arg: unknown) => void] | undefined = undefined;
-		this.#rpcResultEmitter.once(rpcId as any, (errorCode, result) => {
+		this._rpcResultEmitter.once(rpcId as any, (errorCode, result) => {
 			code = [errorCode, result];
 			if (!resolver) return;
-			if (errorCode === 3) resolver[1](new Error(`room destroyed or player disconnceted`));
-			if (errorCode === 2) resolver[1](new Error(`no method: ${methodName}`));
 			if (errorCode) resolver[1](result);
 			resolver[0](result);
 		})
-		this.#connection!.message("$rpc", rpcId, methodName, ...args);
+		this._connection!.message("$rpc", undefined, 0, rpcId, [methodName], args);
 		if (code) {
-			if (code[0] === 3) return undefined;
-			if (code[0] === 2) throw new Error(`no method: ${methodName}`);
 			if (code[0]) throw code[1];
 			return code[1];
 		}
@@ -109,15 +118,15 @@ class Client {
 	}
 
 	get status(){
-		return this.#connection!.status
+		return this._connection!.status
 	}
 
 	leave(reason?: string | null){
-		return this.#connection!.leave(reason);
+		return this._connection!.leave(reason);
 	}
 
 	on(eventName: string, handler: (...args: unknown[]) => void): this{
-		this.#rpcEventEmitter.on(eventName, handler);
+		this._rpcEventEmitter.on(eventName, handler);
 		return this;
 	}
 }
@@ -130,13 +139,14 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
 					import room from "varhub:room";
+					room.on("connection", con => con.open());
 
 					export function greet(){
-    					return "Hello, " + this.player + "!";
+    					return "Hello, " + this.parameters[0] + "!";
 					}
 
                     export function getPlayers(){
-                        return room.getPlayers();
+                        return [...room.getConnections()].map(c => c.parameters[0]);
 					}
 				`
 			}
@@ -147,20 +157,20 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		const greetMessage = await bobClient.call("greet");
 		assert.equal(greetMessage, "Hello, Bob!", "greet message for Bob");
 
-		const bobClient2 = new Client(room, "Bob").join();
+		const [bobClient2] = await new Client(room, "Bob").enter();
 		const greetMessage2 = await bobClient2.call("greet");
 		assert.equal(greetMessage2, "Hello, Bob!", "greet message 2 for Bob");
 
-		const aliceClient = new Client(room, "Alice").join();
+		const [aliceClient] = await new Client(room, "Alice").enter();
 		const greetMessage3 = await aliceClient.call("greet");
 		assert.equal(greetMessage3, "Hello, Alice!", "greet message for Alice");
 
-		const players = await aliceClient.call("getPlayers");
-		assert.deepEqual(players, ["Bob", "Alice"], "get all players");
+		const players = await aliceClient.call("getPlayers") as any[];
+		assert.deepEqual(new Set(players), new Set(["Bob", "Alice"]), "get all players");
 	});
 
 	it("async ctrl methods", {timeout: 500}, async () => {
@@ -170,7 +180,7 @@ describe("test controller",() => {
 				"index.js": /* language=JavaScript */ `
                     export async function greet(){
                         await new Promise(r => setTimeout(r, 1));
-                        return "Hello, " + this.player + "!";
+                        return "Hello, " + this.parameters[0] + "!";
                     }
 				`
 			}
@@ -181,7 +191,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		const greetResult = await bobClient.call("greet");
 		assert.equal(greetResult, "Hello, Bob!", "greet bob");
 	});
@@ -203,7 +213,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();;
+		const [client] = await new Client(room, "Bob").enter();
 		assert.equal(await client.call("getCurrent"), 0, "current = 0");
 		assert.equal(await client.call("getNext"), 1, "next = 0");
 		assert.equal(await client.call("getCurrent"), 1, "current = 1");
@@ -225,7 +235,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		await assert.rejects(
 			async () => client.call("getError"),
 			(error: any) => error === 0,
@@ -252,7 +262,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		assert.equal(
 			await client.call("fetch", "https://google.com"),
 			"fetched:https://google.com",
@@ -282,7 +292,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		assert.equal(await client.call("fetchWithError", "https://google.com"), 400, "fetched url error");
 	});
 
@@ -292,6 +302,7 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
+                    room.on("connection", con => con.open());
                     export const getRoomMessage = () => room.message
                     export const setRoomMessage = (msg) => room.message = msg;
 				`
@@ -303,13 +314,12 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		assert.equal(await client.call("getRoomMessage"), null, "default message is null");
 		await client.call("setRoomMessage", "test");
 		assert.equal(room.publicMessage, "test", "message is test");
 		assert.equal(await client.call("getRoomMessage"), "test", "next message is test");
 	});
-
 
 	it("room closed", {timeout: 500}, async () => {
 		const code: ControllerCode = {
@@ -317,8 +327,12 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
-                    export const getRoomClosed = () => room.closed
-                    export const setRoomClosed = (msg) => room.closed = msg;
+					let closed = false;
+                    room.on("connection", con => {
+                        closed ? con.close("room-closed") : con.open();
+                    });
+                    export const getRoomClosed = () => closed
+                    export const setRoomClosed = (msg) => closed = msg;
 				`
 			}
 		}
@@ -328,17 +342,18 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.equal(await bobClient.call("getRoomClosed"), false, "default closed is false");
 
-		const eveClient = new Client(room, "Eve").join();
+		const [eveClient] = await new Client(room, "Eve").enter();
 		assert.equal(eveClient.status, "joined", "Eve joined");
 
 		await bobClient.call("setRoomClosed", true);
 		assert.equal(await bobClient.call("getRoomClosed"), true, "next closed is true");
 
-		const aliceClient = new Client(room, "Alice").join();
-		assert.equal(aliceClient.status, "disconnected", "alice can not join");
+		const aliceClient = new Client(room, "Alice").enter();
+		await assert.rejects(Promise.resolve(aliceClient), "alice can not join");
+		await new Promise(r => setTimeout(r, 10)); // wait for close
 	});
 
 	it("room destroy", {timeout: 500}, async () => {
@@ -347,6 +362,7 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
+                    room.on("connection", con => con.open());
                     export const destroy = () => room.destroy();
 				`
 			}
@@ -357,7 +373,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.equal(room.destroyed, false, "room not destroyed");
 		await Promise.allSettled([bobClient.call("destroy")]);
 		assert.equal(room.destroyed, true, "room destroyed");
@@ -369,9 +385,19 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
-                    export const isPlayerOnline = room.isPlayerOnline;
-                    export const hasPlayer = room.hasPlayer;
-                    export const kick = room.kick;
+                    import Players from "varhub:players";
+
+                    const players = new Players(room, (_c, name) => name);
+
+                    export function isPlayerOnline(name){
+                        return players.get(name)?.online;
+					}
+                    export function hasPlayer(name){
+                     	return players.get(name)?.registered ?? false
+					}
+                    export function kick(name){
+                        players.get(name).kick();
+					};
 				`
 			}
 		}
@@ -381,11 +407,11 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.equal(await bobClient.call("isPlayerOnline", "Alice"), undefined, "Alice online is undefined");
 		assert.equal(await bobClient.call("hasPlayer", "Alice"), false, "no player Alice");
 
-		const aliceClient = new Client(room, "Alice").join();
+		const [aliceClient] = await new Client(room, "Alice").enter();
 
 		assert.equal(await bobClient.call("isPlayerOnline", "Alice"), true, "Alice online is true");
 		assert.equal(await bobClient.call("hasPlayer", "Alice"), true, "has player Alice");
@@ -399,7 +425,7 @@ describe("test controller",() => {
 
 		assert.equal(await bobClient.call("isPlayerOnline", "Alice"), undefined, "Alice online is undefined after kick");
 		assert.equal(await bobClient.call("hasPlayer", "Alice"), false, "no player Alice after kick");
-		
+
 		await Promise.allSettled([bobClient.call("kick", "Bob")]);
 		assert.equal(bobClient.status, "disconnected", "Bob kick himself");
 		await new Promise(resolve => setTimeout(resolve, 10)); // wait because error
@@ -411,7 +437,12 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
-                    export const send = room.send;
+                    room.on("connection", con => con.open());
+                    export function send(receiver, eventName,  ...args){
+                        for (const con of room.getConnections()){
+                            if (con.parameters[0] === receiver) con.send("$rpc", undefined, 4, [eventName], args)
+						}
+					}
                     export const broadcast = room.broadcast;
 				`
 			}
@@ -422,15 +453,15 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
-		const aliceClient = new Client(room, "Alice").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
+		const [aliceClient] = await new Client(room, "Alice").enter();
 		const aliceMessages: any[] = [];
 		aliceClient.on("message", value => aliceMessages.push(value));
 
 		await bobClient.call("send", "Alice", "message", "hello");
 		assert.deepEqual(aliceMessages, ["hello"], "alice receives first message");
 
-		await bobClient.call("broadcast", "message", "hi");
+		await bobClient.call("broadcast", "$rpc", undefined, 4, ["message"], ["hi"]);
 		assert.deepEqual(aliceMessages, ["hello", "hi"], "alice receives next message");
 	});
 
@@ -440,7 +471,12 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
-                    export const getPlayerData = room.getPlayerData;
+                    room.on("connection", con => con.open());
+                    export function getPlayerData(name){
+                        for (const con of room.getConnections()){
+                            if (con.parameters[0] === name) return con.parameters[1];
+						}
+					}
 				`
 			}
 		}
@@ -450,7 +486,7 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob", "", {foo: "bar"}).join();
+		const [bobClient] = await new Client(room, "Bob", {foo: "bar"}).enter();
 		const bobData = await bobClient.call("getPlayerData", "Bob");
 		assert.deepEqual(bobData, {foo: "bar"}, "Bob data is same");
 	});
@@ -461,13 +497,14 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
+                    room.on("connection", con => con.open());
 
 					let last = undefined;
-					const onJoin = (name) => last = name;
-                    room.on("join", onJoin);
+					const onJoin = (con) => last = con.parameters[0];
+                    room.on("connectionOpen", onJoin);
 
                     export const getLast = () => last;
-                    export const stopListen = () => room.off("join", onJoin);
+                    export const stopListen = () => room.off("connectionOpen", onJoin);
 				`
 			}
 		}
@@ -477,14 +514,14 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.equal(await bobClient.call("getLast"), "Bob", "Bob is last");
 
-		new Client(room, "Alice").join();
+		await new Client(room, "Alice").enter();
 		assert.equal(await bobClient.call("getLast"), "Alice", "Alice is last");
 
 		await bobClient.call("stopListen");
-		new Client(room, "Eve").join();
+		await new Client(room, "Eve").enter();
 		assert.equal(await bobClient.call("getLast"), "Alice", "Alice is still last");
 	});
 
@@ -495,10 +532,11 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
+                    room.on("connection", con => con.open());
 
                     let last = undefined;
-                    const onOffline = (name) => last = name;
-                    room.once("offline", onOffline);
+                    const onOffline = (con) => last = con.parameters[0];
+                    room.once("connectionClose", onOffline);
 
                     export const getLast = () => last;
 				`
@@ -510,56 +548,16 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, apiSource)
 		});
 		await ctrl.startAsync();
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.equal(await bobClient.call("getLast"), undefined, "no offline");
 
-		new Client(room, "Alice").join().leave();
+		const [aliceClient] = await new Client(room, "Alice").enter();
+		aliceClient.leave();
 		assert.equal(await bobClient.call("getLast"), "Alice", "Alice disconnected first");
 
-		new Client(room, "Eve").join().leave();
+		const [eveClient] = await new Client(room, "Eve").enter();
+		eveClient.leave();
 		assert.equal(await bobClient.call("getLast"), "Alice", "Alice still disconnected first");
-	});
-
-	it("multi controllers with same api", {timeout: 500}, async () => {
-		const codeFoo: ControllerCode = {
-			main: "index.js",
-			source: {
-				"index.js": /* language=JavaScript */ `
-                    import counter from "varhub:api/Counter";
-                    export const foo = () => "Foo"
-
-                    export const fooCurrent = () => counter.current()
-				`
-			}
-		}
-
-		const codeBar: ControllerCode = {
-			main: "index.js",
-			source: {
-				"index.js": /* language=JavaScript */ `
-                    import counter from "varhub:api/Counter";
-                    export const bar = () => "Bar"
-
-                    export const barNext = () => counter.next()
-				`
-			}
-		}
-
-		const room = new Room();
-		const apiHelperController = new ApiHelperController(room, apiSource);
-		const rpcController = new RPCController(room);
-		using ctrl1 = new IsolatedVMController(room, codeFoo, {apiHelperController, rpcController});
-		await ctrl1.startAsync();
-		using ctrl2 = new IsolatedVMController(room, codeBar, {apiHelperController, rpcController});
-		await ctrl2.startAsync();
-
-		const bobClient = new Client(room, "Bob").join();
-		assert.equal(await bobClient.call("foo"), "Foo", "call runtime Foo");
-		assert.equal(await bobClient.call("bar"), "Bar", "call runtime Bar");
-
-		assert.equal(await bobClient.call("fooCurrent"), 0, "current counter in Foo = 0");
-		await bobClient.call("barNext"); // increment counter in Bar
-		assert.equal(await bobClient.call("fooCurrent"), 1, "current counter in Foo = 1");
 	});
 
 	it("config", {timeout: 500}, async () => {
@@ -577,7 +575,7 @@ describe("test controller",() => {
 		using ctrl = new IsolatedVMController(room, code, {config: {foo: "bar"}})
 		await ctrl.startAsync();
 
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.deepEqual(await bobClient.call("getConfig"), {foo: "bar"}, "config is same");
 	});
 
@@ -596,7 +594,7 @@ describe("test controller",() => {
 		using ctrl = new IsolatedVMController(room, code)
 		await ctrl.startAsync();
 
-		const bobClient = new Client(room, "Bob").join();
+		const [bobClient] = await new Client(room, "Bob").enter();
 		assert.deepEqual(await bobClient.call("getConfig"), undefined, "config is empty");
 	});
 
@@ -606,12 +604,13 @@ describe("test controller",() => {
 			source: {
 				"index.js": /* language=JavaScript */ `
 					import room from "varhub:room";
+                    room.on("connection", con => con.open());
+
                     export function kickOther(){
-    					const {player, connection} = this;
-                        const connections = room.getPlayerConnections(player);
+    					const connections = room.getConnections();
                         for (const c of connections){
-                            if (c === connection) continue;
-                            room.kick(c);
+                            if (c === this) continue;
+                            c.close("kick-reason");
 						}
 					}
 				`
@@ -622,9 +621,9 @@ describe("test controller",() => {
 		using ctrl = new IsolatedVMController(room, code);
 		await ctrl.startAsync();
 
-		const bobClient1 = new Client(room, "Bob").join();
-		const bobClient2 = new Client(room, "Bob").join();
-		const bobClient3 = new Client(room, "Bob").join();
+		const [bobClient1] = await new Client(room, "Bob").enter();
+		const [bobClient2] = await new Client(room, "Bob").enter();
+		const [bobClient3] = await new Client(room, "Bob").enter();
 		assert.equal(bobClient1.status, "joined");
 		assert.equal(bobClient2.status, "joined");
 		assert.equal(bobClient3.status, "joined");
@@ -632,68 +631,7 @@ describe("test controller",() => {
 		assert.equal(bobClient1.status, "joined");
 		assert.equal(bobClient2.status, "disconnected");
 		assert.equal(bobClient3.status, "disconnected");
-	});
-
-	it("send other connections", {timeout: 500}, async () => {
-		const code: ControllerCode = {
-			main: "index.js",
-			source: {
-				"index.js": /* language=JavaScript */ `
-					import room from "varhub:room";
-                    export function sendOther(){
-    					const {player, connection} = this;
-                        const connections = room.getPlayerConnections(player);
-                        for (const c of connections){
-                            if (c === connection) continue;
-                            room.send(c, "msg");
-						}
-					}
-				`
-			}
-		}
-
-		const room = new Room();
-		using ctrl = new IsolatedVMController(room, code);
-		await ctrl.startAsync();
-
-		const bobClient1 = new Client(room, "Bob").join();
-		const bobClient2 = new Client(room, "Bob").join();
-		assert.deepEqual(bobClient1.eventLog, []);
-		assert.deepEqual(bobClient2.eventLog, []);
-		await bobClient1.call("sendOther");
-		assert.deepEqual(bobClient1.eventLog, []);
-		assert.deepEqual(bobClient2.eventLog, [["msg"]]);
-	});
-
-	it("kick other on join", {timeout: 500}, async () => {
-		const code: ControllerCode = {
-			main: "index.js",
-			source: {
-				"index.js": /* language=JavaScript */ `
-					import room from "varhub:room";
-					room.on("connectionJoin", (player, connection) => {
-                        const connections = room.getPlayerConnections(player);
-                        for (const c of connections){
-                            if (c === connection) continue;
-                            room.kick(c, "only 1 connection allowed");
-                        }
-					});
-				`
-			}
-		}
-
-		const room = new Room();
-		using ctrl = new IsolatedVMController(room, code);
-		await ctrl.startAsync();
-
-		const bobClient1 = new Client(room, "Bob").join();
-		await new Promise(r => setTimeout(r, 100));
-		assert.deepEqual(bobClient1.status, "joined");
-		const bobClient2 = new Client(room, "Bob").join();
-		await new Promise(r => setTimeout(r, 100));
-		assert.deepEqual(bobClient2.status, "joined");
-		assert.deepEqual(bobClient1.status, "disconnected");
-		assert.deepEqual(bobClient1.closeReason, "only 1 connection allowed");
+		await new Promise(r => setTimeout(r, 10)); // wait for dispose
 	});
 
 	it("import remote", {timeout: 10500}, async () => {
@@ -715,7 +653,7 @@ describe("test controller",() => {
 		const room = new Room();
 		using ctrl = new IsolatedVMController(room, code);
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		await client.call("add", 5);
 		await client.call("add", 10);
 		assert.equal(await client.call("getCounter"), 15, "effector counter works");
@@ -768,18 +706,19 @@ describe("test controller",() => {
 			apiHelperController: new ApiHelperController(room, {network: MockNetwork})
 		});
 		await ctrl.startAsync();
-		const client = new Client(room, "Bob").join();
+		const [client] = await new Client(room, "Bob").enter();
 		assert.deepEqual(await client.call("test"), ["helloworld", {a: [10]}], "effector counter works");
 	})
 
-	it("receive events on join", {timeout: 200}, async () => {
+	it("receive events on join", {timeout: 500}, async () => {
 		const code: ControllerCode = {
 			main: "index.js",
 			source: {
 				"index.js": /* language=JavaScript */ `
                     import room from "varhub:room";
-                    room.on("join", (player) => {
-                        room.send(player, "joined")
+                    room.on("connection", (con) => {
+                        con.open();
+                        con.send("$rpc", undefined, 4, ["joined"], [])
                     });
 				`
 			}
@@ -789,10 +728,10 @@ describe("test controller",() => {
 		using ctrl = new IsolatedVMController(room, code)
 		await ctrl.startAsync();
 		let joined = false;
-		new Client(room, "Bob")
-		.on("joined", () => joined = true)
-			.join()
-		;
+		await new Client(room, "Bob")
+			.on("joined", () => joined = true)
+				.enter()
+			;
 		await new Promise(r => setTimeout(r, 100));
 		assert.ok(joined, "client receive entered message");
 	});
@@ -817,7 +756,8 @@ describe("test controller",() => {
 		const room = new Room();
 		using ctrl = new IsolatedVMController(room, code);
 		await ctrl.startAsync();
-		const result = await new Client(room, "Bob").join().call("f") as any;
+		const [client] = await new Client(room, "Bob").enter()
+		const result = await client.call("f") as any;
 		assert.equal(typeof result[0], "number", "a is number");
 		assert.equal(typeof result[1], "number", "a is number");
 		assert.ok(result[1] > result[0], "performance works");

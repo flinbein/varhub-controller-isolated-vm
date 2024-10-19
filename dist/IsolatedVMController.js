@@ -1,22 +1,26 @@
-import { RPCController, PlayerController, TypedEventEmitter } from "@flinbein/varhub";
+import { TypedEventEmitter } from "@flinbein/varhub";
 import { IsolatedVMProgram } from "./IsolatedVMProgram.js";
 import { parseDescriptor, joinDescriptor } from "./util/DescriptorUtils.js";
-import { RoomModuleHelper } from "./util/RoomModuleHelper.js";
-import eventEmitterSource from "./EventEmitterSource.js";
+import { RoomModuleHelper } from "./RoomModuleHelper.js";
+import eventEmitterSource from "./innerSource/EventEmitterSource.js";
+import rpcSource from "./innerSource/RPCSource.js";
+import playersSource from "./innerSource/PlayersSource.js";
 import { PerformanceModuleHelper } from "./PerformanceModuleHelper.js";
 import { ApiModuleHelper } from "./ApiModuleHelper.js";
 const defaultExtensions = ["js", "mjs", "json", "json5"];
+const baseModules = {
+    "varhub:events": { type: "js", text: eventEmitterSource },
+    "varhub:rpc": { type: "js", text: rpcSource },
+    "varhub:players": { type: "js", text: playersSource },
+};
 export class IsolatedVMController extends TypedEventEmitter {
     #room;
     #source;
     #program;
-    #rpcController;
-    #playerController;
     #apiHelperController;
     #mainModuleName;
     #networkApi;
     #apiModuleHelper;
-    #mainModule;
     constructor(room, code, options = {}) {
         super();
         try {
@@ -30,8 +34,6 @@ export class IsolatedVMController extends TypedEventEmitter {
             });
             void this.#program.createModule("varhub:config", `export default ${configJson}`, 'js');
             this.#apiHelperController = options.apiHelperController;
-            this.#rpcController = options.rpcController ?? new RPCController(room);
-            this.#playerController = options.playerController ?? new PlayerController(room);
             this.#mainModuleName = code.main;
             this.#networkApi = options.apiHelperController?.getOrCreateApi("network");
         }
@@ -45,35 +47,26 @@ export class IsolatedVMController extends TypedEventEmitter {
         if (this.#started)
             throw new Error("already starting");
         this.#started = true;
-        await this.#program.createModule("varhub:events", eventEmitterSource);
-        await new RoomModuleHelper(this.#room, this.#playerController, this.#program, "varhub:room").execute();
+        await new RoomModuleHelper(this.#room, this.#program, "varhub:room").execute();
         await new PerformanceModuleHelper(this.#program, "varhub:performance").execute();
         this.#apiModuleHelper = new ApiModuleHelper(this.#apiHelperController, this.#program, "varhub:api/");
         await this.#apiModuleHelper.execute();
-        this.#rpcController.addHandler(this.#rpcHandler);
     }
     async startAsync() {
         await this.#startModules();
-        this.#mainModule = await this.#program.getModule(this.#mainModuleName);
+        const module = await this.#program.getModule(this.#mainModuleName);
+        const keys = await module.getKeysAsync();
+        if (keys.length > 0)
+            await this.#program.startRpc(this.#mainModuleName);
         return this;
     }
     createInspectorSession() {
         return this.#program.createInspectorSession();
     }
-    #rpcHandler = (connection, methodName, ...args) => {
-        if (typeof methodName !== "string")
-            return;
-        const type = this.#mainModule?.getType(methodName);
-        if (type === "function")
-            return () => {
-                const player = this.#playerController.getPlayerOfConnection(connection);
-                const playerId = player ? this.#playerController.getPlayerId(player) : null;
-                if (playerId == null)
-                    throw new Error(`no player`);
-                return this.#mainModule?.callMethod(methodName, { player: playerId, connection: connection.id }, ...args);
-            };
-    };
     #getSource = (moduleName) => {
+        const baseModule = baseModules[moduleName];
+        if (baseModule)
+            return { name: moduleName, getSource: () => baseModule };
         const possibleApiModuleName = this.#apiModuleHelper?.getPossibleApiModuleName(moduleName);
         if (possibleApiModuleName != null)
             return {
