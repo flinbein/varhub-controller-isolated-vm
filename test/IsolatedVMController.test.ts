@@ -116,7 +116,17 @@ class Client {
 			resolver = [success, fail];
 		})
 	}
-
+	
+	sendRaw(...args: any[]){
+		this._connection!.message(...args);
+	}
+	
+	onRawEvent(handler: (...args: any[]) => void) {
+		this._connection!.on("event", handler);
+		return () => void this._connection!.off("event", handler);
+	}
+	
+	
 	get status(){
 		return this._connection!.status
 	}
@@ -735,9 +745,9 @@ describe("test controller",() => {
 		await new Promise(r => setTimeout(r, 100));
 		assert.ok(joined, "client receive entered message");
 	});
-
+	
 	it("varhub:performance", {timeout: 100}, async () => {
-
+		
 		const code: ControllerCode = {
 			main: "index.js",
 			source: {
@@ -746,13 +756,13 @@ describe("test controller",() => {
                     export function f() {
                         const a = performance.now();
                         for (let i=0; i<100; i++);
-						const b = performance.now();
+                        const b = performance.now();
                         return [a, b];
                     }
 				`
 			}
 		}
-
+		
 		const room = new Room();
 		using ctrl = new IsolatedVMController(room, code);
 		await ctrl.startAsync();
@@ -761,5 +771,65 @@ describe("test controller",() => {
 		assert.equal(typeof result[0], "number", "a is number");
 		assert.equal(typeof result[1], "number", "a is number");
 		assert.ok(result[1] > result[0], "performance works");
+	});
+	
+	it("export class RPCSource", {timeout: 300}, async () => {
+		
+		const code: ControllerCode = {
+			main: "index.js",
+			source: {
+				"index.js": /* language=JavaScript */ `
+                    import RPCSource from "varhub:rpc";
+                    export class Deck extends RPCSource {
+                        constructor(baseState){
+                            const con = new.target.connection;
+                            super({
+                                getMyName() {
+                                    return String(con.parameters[0]);
+                                },
+                                changeState: (value) => {
+                                    this.setState(value)
+                                }
+                            }, baseState);
+                        }
+                    }
+				`
+			}
+		}
+		
+		const room = new Room();
+		using ctrl = new IsolatedVMController(room, code);
+		await ctrl.startAsync();
+		const [client] = await new Client(room, "Bob").enter()
+		const channelData1 = await new Promise(resolve => {
+			const unsubscribe = client.onRawEvent((key, channel, command, data, ...log) => {
+				if (key !== "$rpc" || channel !== 88 || command !== 2) return;
+				unsubscribe();
+				resolve(data);
+			});
+			client.sendRaw("$rpc", undefined, 2, 88, ["Deck"], [99]);
+		})
+		
+		assert.equal(channelData1, 99, "1st channel state");
+		
+		const callResult = await new Promise(resolve => {
+			const unsubscribe = client.onRawEvent((key, channel, command, callId, data) => {
+				if (key !== "$rpc" || channel !== 88 || command !== 0 || callId !== 777) return;
+				unsubscribe();
+				resolve(data);
+			})
+			client.sendRaw("$rpc", 88, 0, 777, ["getMyName"], []);
+		});
+		assert.equal(callResult, "Bob", "get name success");
+		
+		const channelData2 = await new Promise(resolve => {
+			const unsubscribe = client.onRawEvent((key, channel, command, data) => {
+				if (key !== "$rpc" || channel !== 88 || command !== 2) return;
+				unsubscribe();
+				resolve(data);
+			});
+			client.sendRaw("$rpc", 88, 0, 666, ["changeState"], [22]);
+		})
+		assert.equal(channelData2, 22, "2nd channel state");
 	});
 });
