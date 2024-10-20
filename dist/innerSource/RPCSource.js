@@ -1,49 +1,53 @@
 export default /* language=javascript */ `
 import { EventEmitter } from "varhub:events";
 const isConstructable = (fn) => {
-    try {return Boolean(class E extends fn {})} catch {return false}
+	try {return Boolean(class E extends fn {})} catch {return false}
 };
 const isESClass = (fn) => (
-    typeof fn === 'function'
+	typeof fn === 'function'
 	&& isConstructable(fn)
 	&& Function.prototype.toString.call(fn).startsWith("class")
 );
 export default class RPCSource {
-    static rnd = Math.random();
+	static rnd = Math.random();
 	#handler;
 	#events = new EventEmitter();
-    #state;
-    constructor(handler, initialState) {
-        this.#state = initialState;
-        if (typeof handler === "object") {
-            const form = handler;
-            handler = function (con, path, args, creatingNewChannel) {
-                let target = form;
-                for (let step of path) target = target[step];
-                if (creatingNewChannel && isESClass(target)) {
-                    const MetaConstructor = function(){return con}
-                    MetaConstructor.prototype = target.prototype;
-                    MetaConstructor.connection = con;
-                    return Reflect.construct(target, args, MetaConstructor);
-                }
-                return target.apply(con, args);
-            };
-        }
-        this.#handler = handler;
-    }
-    get state(){return this.#state}
+	#state;
+	constructor(handler, initialState) {
+		this.#state = initialState;
+		if (typeof handler === "object") {
+			const form = handler;
+			handler = function (con, path, args, creatingNewChannel) {
+				let target = form;
+				for (let step of path) {
+					if (typeof target !== "object") throw new Error("wrong path");
+					if (!Object.keys(target).includes(step)) throw new Error("wrong path");
+					target = target[step];
+				}
+				if (creatingNewChannel && isESClass(target)) {
+					const MetaConstructor = function(){return con}
+					MetaConstructor.prototype = target.prototype;
+					MetaConstructor.connection = con;
+					return Reflect.construct(target, args, MetaConstructor);
+				}
+				return target.apply(con, args);
+			};
+		}
+		this.#handler = handler;
+	}
+	get state(){return this.#state}
 	withEventTypes() {return this}
-    setState(state) {
-        const newState = typeof state === "function" ? state(this.#state) : state;
-        const stateChanged = this.#state !== newState;
-        this.#state = newState;
-        if (stateChanged) this.#events.emit("state", newState);
-        return this;
-    }
-    withState(state) {
-        this.#state = state;
-        return this;
-    }
+	setState(state) {
+		const newState = typeof state === "function" ? state(this.#state) : state;
+		const stateChanged = this.#state !== newState;
+		this.#state = newState;
+		if (stateChanged) this.#events.emit("state", newState);
+		return this;
+	}
+	withState(state) {
+		this.#state = state;
+		return this;
+	}
 	#disposed = false;
 	get disposed() {
 		return this.#disposed;
@@ -61,9 +65,9 @@ export default class RPCSource {
 		this.dispose("disposed");
 	}
 	static start(rpcSource, room, baseKey, options = { maxChannelsPerClient: Infinity }) {
-        const channels = new WeakMap;
+		const channels = new WeakMap;
 		const onConnectionMessage = async (con, ...args) => {
-            if (args.length < 4) return;
+			if (args.length < 4) return;
 			const [incomingKey, channelId, operationId, ...msgArgs] = args;
 			if (incomingKey !== baseKey) return;
 			const source = channelId === undefined ? rpcSource : channels.get(con)?.get(channelId)?.source;
@@ -80,7 +84,7 @@ export default class RPCSource {
 					try {
 						const result = await source.#handler(con, path, callArgs, false);
 						if (result instanceof RPCSource) throw new Error("wrong data type");
-                        con.send(incomingKey, channelId, 0 /* REMOTE_ACTION.RESPONSE_OK */, callId, result);
+						con.send(incomingKey, channelId, 0 /* REMOTE_ACTION.RESPONSE_OK */, callId, result);
 					}
 					catch (error) {
 						con.send(incomingKey, channelId, 3 /* REMOTE_ACTION.RESPONSE_ERROR */, callId, error);
@@ -115,8 +119,8 @@ export default class RPCSource {
 							con.send(incomingKey, newChannelId, 4 /* REMOTE_ACTION.EVENT */, path, args);
 						};
 						const onSourceState = (state) => {
-                            con.send(incomingKey, newChannelId, 2 /* REMOTE_ACTION.CREATE */, state);
-                        };
+							con.send(incomingKey, newChannelId, 2 /* REMOTE_ACTION.CREATE */, state);
+						};
 						const dispose = () => {
 							result.#events.off("dispose", onSourceDispose);
 							result.#events.off("message", onSourceMessage);
