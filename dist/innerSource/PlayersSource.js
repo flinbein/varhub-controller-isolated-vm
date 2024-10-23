@@ -166,3 +166,4 @@ const Player = class Player {
 		return this.connections[Symbol.iterator]();
 	}
 };`;
+//# sourceMappingURL=PlayersSource.js.map

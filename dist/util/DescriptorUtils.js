@@ -17,3 +17,4 @@ export function joinDescriptor(desc) {
         result += "#" + desc.hash;
     return result;
 }
+//# sourceMappingURL=DescriptorUtils.js.map

@@ -298,3 +298,4 @@ export class IsolatedVMProgramInspector extends TypedEventEmitter {
         this.emit("dispose");
     }
 }
+//# sourceMappingURL=IsolatedVMProgram.js.map

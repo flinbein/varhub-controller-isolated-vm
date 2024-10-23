@@ -15,3 +15,4 @@ export class PerformanceModuleHelper {
         await this.#program.createModule(this.#moduleName, `export { now } from "#inner";`);
     }
 }
+//# sourceMappingURL=PerformanceModuleHelper.js.map

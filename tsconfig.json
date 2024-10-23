@@ -17,7 +17,8 @@
 		"allowUnreachableCode": false,
 		"allowUnusedLabels": false,
 		"strictBindCallApply": true,
-		"strictFunctionTypes": true
+		"strictFunctionTypes": true,
+		"sourceMap": true
 	},
 	"buildOptions": {
 		"verbose": true

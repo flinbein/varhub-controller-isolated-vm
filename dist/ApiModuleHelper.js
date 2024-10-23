@@ -47,3 +47,4 @@ export class ApiModuleHelper {
         return api[methodName]?.(...args);
     };
 }
+//# sourceMappingURL=ApiModuleHelper.js.map

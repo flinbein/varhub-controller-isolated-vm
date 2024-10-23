@@ -82,3 +82,4 @@ export class RoomModuleHelper {
         return connection;
     }
 }
+//# sourceMappingURL=RoomModuleHelper.js.map
