@@ -8,7 +8,9 @@ import playersSource from "./innerSource/PlayersSource.js";
 import { PerformanceModuleHelper } from "./PerformanceModuleHelper.js";
 import { ApiModuleHelper } from "./ApiModuleHelper.js";
 
-type IsolatedVMControllerEvents = {}
+type IsolatedVMControllerEvents = {
+	dispose: []
+}
 
 export interface ControllerCode {
 	main: string,
@@ -49,6 +51,7 @@ export class IsolatedVMController extends TypedEventEmitter<IsolatedVMController
 				inspector: options.inspector,
 				memoryLimitMb: options.memoryLimitMb
 			});
+			this.#program.on("dispose", this[Symbol.dispose].bind(this));
 			void this.#program.createModule("varhub:config", `export default ${configJson}`, 'js');
 			this.#apiHelperController = options.apiHelperController;
 			this.#mainModuleName = code.main;
@@ -145,7 +148,15 @@ export class IsolatedVMController extends TypedEventEmitter<IsolatedVMController
 		}
 	}
 	
+	#disposed = false;
+	get disposed(){
+		return this.#disposed;
+	}
+	
 	[Symbol.dispose](){
+		if (this.#disposed) return;
+		this.#disposed = true;
 		this.#program[Symbol.dispose]();
+		this.emit("dispose");
 	}
 }

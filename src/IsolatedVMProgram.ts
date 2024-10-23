@@ -48,7 +48,7 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 		this.#getModuleSource = getSource;
 		this.#isolate = new IVM.Isolate({memoryLimit: memoryLimitMb, inspector: inspector});
 		this.#addDisposeHook(
-			startIsolateCounter(this.#isolate, this, 1000, 200000000n)
+			startIsolateCounter(this.#isolate, this, 10000, 2000000000n)
 		);
 		const context = this.#context = this.#isolate.createContextSync({inspector: inspector});
 		const safeContext = this.#safeContext = this.#isolate.createContextSync({inspector: false});

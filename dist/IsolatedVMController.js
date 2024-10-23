@@ -32,6 +32,7 @@ export class IsolatedVMController extends TypedEventEmitter {
                 inspector: options.inspector,
                 memoryLimitMb: options.memoryLimitMb
             });
+            this.#program.on("dispose", this[Symbol.dispose].bind(this));
             void this.#program.createModule("varhub:config", `export default ${configJson}`, 'js');
             this.#apiHelperController = options.apiHelperController;
             this.#mainModuleName = code.main;
@@ -128,8 +129,16 @@ export class IsolatedVMController extends TypedEventEmitter {
             text: await response.text(),
         };
     }
+    #disposed = false;
+    get disposed() {
+        return this.#disposed;
+    }
     [Symbol.dispose]() {
+        if (this.#disposed)
+            return;
+        this.#disposed = true;
         this.#program[Symbol.dispose]();
+        this.emit("dispose");
     }
 }
 //# sourceMappingURL=IsolatedVMController.js.map
