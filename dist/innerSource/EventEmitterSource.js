@@ -1,4 +1,4 @@
-export default /* language=JavaScript */ `export class EventEmitter {
+export default /* language=JavaScript */ `export default class EventEmitter {
 	#eventMap = {};
     constructor(){
         const emitter = this;

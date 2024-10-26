@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { describe, it } from "node:test";
-import { EventEmitter } from "node:events";
+import EventEmitter from "node:events";
 import { ControllerCode, IsolatedVMController } from "../src/IsolatedVMController.js";
 import { Room, ApiSource, ApiHelper, ApiHelperController, Connection, RPCController } from "@flinbein/varhub";
 

@@ -120,7 +120,7 @@ export class IsolatedVMProgram extends TypedEventEmitter<IsolatedVMProgramEvents
 		const roomRef = await roomModule.namespace.get("default", asRef);
 		await rpcStartMethodRef.apply(
 			rpcConstructorRef.derefInto({release: true}),
-			[rpcRef.derefInto({release: true}), roomRef.derefInto({release: true}), "$rpc"],
+			[rpcRef.derefInto({release: true}), roomRef.derefInto({release: true})],
 			asRef
 		);
 		rpcStartMethodRef.release();

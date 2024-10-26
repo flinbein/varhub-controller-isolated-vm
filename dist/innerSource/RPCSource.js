@@ -1,4 +1,4 @@
-export default /* language=javascript */ `import { EventEmitter } from "varhub:events";
+export default /* language=javascript */ `import EventEmitter from "varhub:events";
 const isConstructable = (fn) => {
     try {
         return Boolean(class E extends fn {
@@ -118,13 +118,13 @@ export default class RPCSource {
     [Symbol.dispose]() {
         this.dispose("disposed");
     }
-    static start(rpcSource, room, baseKey, options = { maxChannelsPerClient: Infinity }) {
+    static start(rpcSource, room, { maxChannelsPerClient = Infinity, key = "$rpc" } = {}) {
         const channels = new WeakMap;
         const onConnectionMessage = async (con, ...args) => {
             if (args.length < 4)
                 return;
             const [incomingKey, channelId, operationId, ...msgArgs] = args;
-            if (incomingKey !== baseKey)
+            if (incomingKey !== key)
                 return;
             const source = channelId === undefined ? rpcSource : channels.get(con)?.get(channelId)?.source;
             if (!source) {
@@ -168,7 +168,7 @@ export default class RPCSource {
                         let map = channels.get(con);
                         if (!map)
                             channels.set(con, map = new Map());
-                        if (map.size >= options.maxChannelsPerClient)
+                        if (map.size >= maxChannelsPerClient)
                             throw new Error("channels limit");
                         const result = await source.#handler(con, path, callArgs, true);
                         if (!(result instanceof RPCSource))

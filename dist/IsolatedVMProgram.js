@@ -71,7 +71,7 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         const rpcRef = await this.#constructRef.apply(undefined, [rpcConstructorRef.derefInto(), sourceModule.namespace.derefInto()], asRef);
         const rpcStartMethodRef = await this.#getPropRef.apply(undefined, [rpcConstructorRef.derefInto(), "start"], asRef);
         const roomRef = await roomModule.namespace.get("default", asRef);
-        await rpcStartMethodRef.apply(rpcConstructorRef.derefInto({ release: true }), [rpcRef.derefInto({ release: true }), roomRef.derefInto({ release: true }), "$rpc"], asRef);
+        await rpcStartMethodRef.apply(rpcConstructorRef.derefInto({ release: true }), [rpcRef.derefInto({ release: true }), roomRef.derefInto({ release: true })], asRef);
         rpcStartMethodRef.release();
     }
     createMaybeAsyncFunctionDeref(fn, opts) {
