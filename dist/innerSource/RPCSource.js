@@ -90,8 +90,8 @@ export default class RPCSource {
         const stateChanged = this.#state !== newState;
         this.#state = newState;
         if (stateChanged) {
-            this.#innerEvents.emit("state", newState, oldState);
-            this.#events.emit("state", newState, oldState);
+            this.#innerEvents.emitWithTry("state", newState, oldState);
+            this.#events.emitWithTry("state", newState, oldState);
         }
         return this;
     }
@@ -107,15 +107,15 @@ export default class RPCSource {
     emit(event, ...args) {
         if (this.#disposed)
             throw new Error("disposed");
-        this.#innerEvents.emit("message", event, args);
+        this.#innerEvents.emitWithTry("message", event, args);
         return this;
     }
     dispose(reason) {
         if (this.#disposed)
             return;
         this.#disposed = true;
-        this.#events.emit("dispose", reason);
-        this.#innerEvents.emit("dispose", reason);
+        this.#events.emitWithTry("dispose", reason);
+        this.#innerEvents.emitWithTry("dispose", reason);
     }
     [Symbol.dispose]() {
         this.dispose("disposed");
@@ -159,7 +159,7 @@ export default class RPCSource {
                 const channel = channels.get(con)?.get(channelId);
                 const deleted = channels.get(con)?.delete(channelId);
                 if (channel && deleted)
-                    source.#events.emit("channelClose", channel, reason);
+                    source.#events.emitWithTry("channelClose", channel, reason);
                 channel?.close(reason);
                 return;
             }
@@ -203,7 +203,7 @@ export default class RPCSource {
                         };
                         let channelReady = false;
                         const channel = new RPCSourceChannel(result, con, dispose);
-                        result.#events.emit("channelOpen", channel);
+                        result.#events.emitWithTry("channelOpen", channel);
                         if (channel.closed) {
                             con.send(incomingKey, newChannelId, 1, disposeReason);
                             return;
@@ -230,15 +230,23 @@ export default class RPCSource {
                 channel.close();
             }
         };
+        const onMainRpcSourceMessage = (path, args) => {
+            if (!Array.isArray(path))
+                path = [path];
+            room.broadcast(key, undefined, 4, path, args);
+        };
         room.on("connectionClose", clearChannelsForConnection);
         room.on("connectionMessage", onConnectionMessage);
+        rpcSource.#innerEvents.on("message", onMainRpcSourceMessage);
         return function dispose() {
             room.off("connectionMessage", onConnectionMessage);
             room.off("connectionClose", clearChannelsForConnection);
+            rpcSource.#innerEvents.off("message", onMainRpcSourceMessage);
             for (let connection of room.getConnections()) {
                 clearChannelsForConnection(connection);
             }
         };
     }
-}`;
+}
+`;
 //# sourceMappingURL=RPCSource.js.map

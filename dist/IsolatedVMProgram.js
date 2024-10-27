@@ -17,6 +17,7 @@ export class IsolatedVMProgram extends TypedEventEmitter {
     #getOwnPropertyNamesRef;
     #getPropRef;
     #constructRef;
+    #startRpcRef;
     constructor(getSource, { memoryLimitMb = 8, inspector = false } = {}) {
         super();
         this.#inspector = inspector;
@@ -36,6 +37,13 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         this.#getOwnPropertyNamesRef = safeContext.evalSync(`Object.getOwnPropertyNames`, { reference: true });
         this.#getPropRef = safeContext.evalSync(`(m,k)=>m[k]`, { reference: true });
         this.#constructRef = safeContext.evalSync(`(c,...a)=>new c(...a)`, { reference: true });
+        this.#startRpcRef = this.#context.evalSync(/* language=javascript */ `
+            (RPCSource, room, module) => {
+                const current = new RPCSource(module);
+                Object.defineProperty(RPCSource, "current", {get: () => current});
+                RPCSource.start(current, room);
+			}
+		`, { reference: true });
         this.#wrapMaybeAsyncRef = this.#safeContext.evalSync(/* language=javascript */ `
             (callFnRef) => (...args) => {
                 const ref = callFnRef.applySync(undefined, [...args], {
@@ -68,11 +76,8 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         const rpcModule = await this.#getIsolatedModule("varhub:rpc");
         const roomModule = await this.#getIsolatedModule("varhub:room");
         const rpcConstructorRef = await rpcModule.namespace.get("default", asRef);
-        const rpcRef = await this.#constructRef.apply(undefined, [rpcConstructorRef.derefInto(), sourceModule.namespace.derefInto()], asRef);
-        const rpcStartMethodRef = await this.#getPropRef.apply(undefined, [rpcConstructorRef.derefInto(), "start"], asRef);
         const roomRef = await roomModule.namespace.get("default", asRef);
-        await rpcStartMethodRef.apply(rpcConstructorRef.derefInto({ release: true }), [rpcRef.derefInto({ release: true }), roomRef.derefInto({ release: true })], asRef);
-        rpcStartMethodRef.release();
+        await this.#startRpcRef.apply(undefined, [rpcConstructorRef.derefInto({ release: true }), roomRef.derefInto({ release: true }), sourceModule.namespace.derefInto()], asRef);
     }
     createMaybeAsyncFunctionDeref(fn, opts) {
         const callFn = (...args) => {

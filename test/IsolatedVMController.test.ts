@@ -832,4 +832,29 @@ describe("test controller",() => {
 		})
 		assert.equal(channelData2, 22, "2nd channel state");
 	});
+	
+	it("RPCSource.default", {timeout: 300}, async () => {
+		
+		const code: ControllerCode = {
+			main: "index.js",
+			source: {
+				"index.js": /* language=JavaScript */ `
+                    import RPCSource from "varhub:rpc";
+                    export function emit(...data){
+                        RPCSource.current.emit("customEvent", ...data)
+					}
+				`
+			}
+		}
+		
+		const room = new Room();
+		using ctrl = new IsolatedVMController(room, code);
+		await ctrl.startAsync();
+		const [client] = await new Client(room, "Bob").enter();
+		const channelEvent = await new Promise(resolve => {
+			client.on("customEvent", (...args) => resolve(args));
+			client.call("emit", 1, 2);
+		});
+		assert.deepEqual(channelEvent, [1, 2], "got event");
+	})
 });

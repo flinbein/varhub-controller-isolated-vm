@@ -113,7 +113,7 @@ class Connection {
 export const onEnter = (conId, ...args) => {
 	const connection = new Connection(conId, args);
 	connections.set(conId, connection);
-	roomEmitter.emit("connection", connection, ...args);
+	roomEmitter.emitWithTry("connection", connection, ...args);
 	if (!connection.deferred) connection.open();
 }
 
@@ -124,8 +124,8 @@ export const onJoin = (conId) => {
 		connections.set(conId, connection);
 	}
 	readyConnections.add(connection)
-	connectionEmitters.get(connection)?.emit("open");
-	roomEmitter.emit("connectionOpen", connection);
+	connectionEmitters.get(connection)?.emitWithTry("open");
+	roomEmitter.emitWithTry("connectionOpen", connection);
 }
 
 export const onClose = (conId, wasReady, reason) => {
@@ -135,8 +135,8 @@ export const onClose = (conId, wasReady, reason) => {
 		readyConnections.delete(connection);
 		const emitter = connectionEmitters.get(connection);
 		connectionEmitters.delete(connection);
-		emitter?.emit("close", reason, wasReady);
-		roomEmitter.emit("connectionClose", connection, reason, wasReady);
+		emitter?.emitWithTry("close", reason, wasReady);
+		roomEmitter.emitWithTry("connectionClose", connection, reason, wasReady);
 	}
 }
 
@@ -146,8 +146,8 @@ export const onMessage = (conId, ...args) => {
 		connection = new Connection(conId);
 		connections.set(conId, connection);
 	}
-	connectionEmitters.get(connection)?.emit("message", ...args);
-	roomEmitter.emit("connectionMessage", connection, ...args);
+	connectionEmitters.get(connection)?.emitWithTry("message", ...args);
+	roomEmitter.emitWithTry("connectionMessage", connection, ...args);
 }
 
 export const getConnections = (options) => {

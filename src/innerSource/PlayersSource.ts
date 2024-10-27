@@ -25,13 +25,13 @@ export default class Players {
             for (let connection of connections)
                 connection.close(reason);
             connections.clear();
-            this.#playerEvents.get(player)?.emit("leave");
-            this.#eventBox.emit("leave", player);
+            this.#playerEvents.get(player)?.emitWithTry("leave");
+            this.#events.emitWithTry("leave", player);
         }
     };
-    #eventBox = new EventEmitter();
-    constructor(room, registerPlayer) {
-        this.#registerPlayer = registerPlayer;
+    #events = new EventEmitter();
+    constructor(room, registerPlayerHandler) {
+        this.#registerPlayer = registerPlayerHandler;
         room.on("connection", this.#onConnection);
         room.on("connectionOpen", this.#onConnectionOpen);
         room.on("connectionClose", this.#onConnectionClose);
@@ -67,15 +67,15 @@ export default class Players {
             const connections = this.#playerConnections.get(existsPlayer);
             connections.add(connection);
             if (connections.size === 1) {
-                this.#eventBox.emit("online", existsPlayer);
-                this.#playerEvents.get(existsPlayer)?.emit("online");
+                this.#events.emitWithTry("online", existsPlayer);
+                this.#playerEvents.get(existsPlayer)?.emitWithTry("online");
             }
             return;
         }
         const player = new Player(playerName, this.#controller);
         this.#playerConnections.set(player, new Set([connection]));
         this.#playerMap.set(playerName, player);
-        this.#eventBox.emit("join", player);
+        this.#events.emitWithTry("join", player);
     };
     #onConnectionClose = (connection) => {
         const playerName = this.#connectionPlayerNameMap.get(connection);
@@ -89,8 +89,8 @@ export default class Players {
         connections.delete(connection);
         const online = connections.size > 0;
         if (wasOnline && !online) {
-            this.#eventBox.emit("offline", existsPlayer);
-            this.#playerEvents.get(existsPlayer)?.emit("offline");
+            this.#events.emitWithTry("offline", existsPlayer);
+            this.#playerEvents.get(existsPlayer)?.emitWithTry("offline");
         }
     };
     get(nameOrConnection) {
@@ -110,15 +110,15 @@ export default class Players {
         return new Set(this.#playerMap.values());
     }
     on(eventName, handler) {
-        this.#eventBox.on.call(this, eventName, handler);
+        this.#events.on.call(this, eventName, handler);
         return this;
     }
     once(eventName, handler) {
-        this.#eventBox.once.call(this, eventName, handler);
+        this.#events.once.call(this, eventName, handler);
         return this;
     }
     off(eventName, handler) {
-        this.#eventBox.off.call(this, eventName, handler);
+        this.#events.off.call(this, eventName, handler);
         return this;
     }
     [Symbol.iterator]() {
