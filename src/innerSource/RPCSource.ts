@@ -12,9 +12,9 @@ const isESClass = (fn) => (typeof fn === 'function' && isConstructable(fn) &&
     Function.prototype.toString.call(fn).startsWith("class"));
 class RPCSourceChannel {
     #source;
-    #closed = false;
     #connection;
     #closeHook;
+    #closed = false;
     constructor(source, connection, closeHook) {
         this.#source = source;
         this.#connection = connection;
@@ -85,17 +85,19 @@ export default class RPCSource {
     setState(state) {
         if (this.disposed)
             throw new Error("disposed");
-        const newState = typeof state === "function" ? state(this.#state) : state;
+        const oldState = this.#state;
+        const newState = typeof state === "function" ? state(oldState) : state;
         const stateChanged = this.#state !== newState;
         this.#state = newState;
         if (stateChanged) {
-            this.#innerEvents.emit("state", newState);
-            this.#events.emit("state", newState);
+            this.#innerEvents.emit("state", newState, oldState);
+            this.#events.emit("state", newState, oldState);
         }
         return this;
     }
-    withState(state) {
-        this.#state = state;
+    withState(...stateArgs) {
+        if (stateArgs.length > 0)
+            this.#state = stateArgs[0];
         return this;
     }
     #disposed = false;
@@ -128,31 +130,31 @@ export default class RPCSource {
                 return;
             const source = channelId === undefined ? rpcSource : channels.get(con)?.get(channelId)?.source;
             if (!source) {
-                con.send(incomingKey, channelId, 1 /* REMOTE_ACTION.CLOSE */, new Error("wrong channel"));
-                if (operationId === 2 /* CLIENT_ACTION.CREATE */) {
-                    con.send(incomingKey, msgArgs[0], 1 /* REMOTE_ACTION.CLOSE */, new Error("wrong channel"));
+                con.send(incomingKey, channelId, 1, new Error("wrong channel"));
+                if (operationId === 2) {
+                    con.send(incomingKey, msgArgs[0], 1, new Error("wrong channel"));
                 }
                 return;
             }
-            if (operationId === 0 /* CLIENT_ACTION.CALL */) {
+            if (operationId === 0) {
                 const [callId, path, callArgs] = msgArgs;
                 try {
                     try {
                         const result = await source.#handler(con, path, callArgs, false);
                         if (result instanceof RPCSource)
                             throw new Error("wrong data type");
-                        con.send(incomingKey, channelId, 0 /* REMOTE_ACTION.RESPONSE_OK */, callId, result);
+                        con.send(incomingKey, channelId, 0, callId, result);
                     }
                     catch (error) {
-                        con.send(incomingKey, channelId, 3 /* REMOTE_ACTION.RESPONSE_ERROR */, callId, error);
+                        con.send(incomingKey, channelId, 3, callId, error);
                     }
                 }
                 catch {
-                    con.send(incomingKey, channelId, 3 /* REMOTE_ACTION.RESPONSE_ERROR */, callId, "parse error");
+                    con.send(incomingKey, channelId, 3, callId, "parse error");
                 }
                 return;
             }
-            if (operationId === 1 /* CLIENT_ACTION.CLOSE */) {
+            if (operationId === 1) {
                 const reason = msgArgs[0];
                 const channel = channels.get(con)?.get(channelId);
                 const deleted = channels.get(con)?.delete(channelId);
@@ -161,7 +163,7 @@ export default class RPCSource {
                 channel?.close(reason);
                 return;
             }
-            if (operationId === 2 /* CLIENT_ACTION.CREATE */) {
+            if (operationId === 2) {
                 const [newChannelId, path, callArgs] = msgArgs;
                 try {
                     try {
@@ -176,16 +178,16 @@ export default class RPCSource {
                         if (result.disposed)
                             throw new Error("channel is disposed");
                         const onSourceDispose = (disposeReason) => {
-                            con.send(incomingKey, newChannelId, 1 /* REMOTE_ACTION.CLOSE */, disposeReason);
+                            con.send(incomingKey, newChannelId, 1, disposeReason);
                             channels.get(con)?.delete(newChannelId);
                         };
                         const onSourceMessage = (path, args) => {
                             if (!Array.isArray(path))
                                 path = [path];
-                            con.send(incomingKey, newChannelId, 4 /* REMOTE_ACTION.EVENT */, path, args);
+                            con.send(incomingKey, newChannelId, 4, path, args);
                         };
                         const onSourceState = (state) => {
-                            con.send(incomingKey, newChannelId, 2 /* REMOTE_ACTION.CREATE */, state);
+                            con.send(incomingKey, newChannelId, 2, state);
                         };
                         let disposeReason;
                         const dispose = (reason) => {
@@ -197,16 +199,16 @@ export default class RPCSource {
                                 return;
                             const deleted = channels.get(con)?.delete(newChannelId);
                             if (deleted)
-                                con.send(incomingKey, newChannelId, 1 /* REMOTE_ACTION.CLOSE */, reason);
+                                con.send(incomingKey, newChannelId, 1, reason);
                         };
                         let channelReady = false;
                         const channel = new RPCSourceChannel(result, con, dispose);
                         result.#events.emit("channelOpen", channel);
                         if (channel.closed) {
-                            con.send(incomingKey, newChannelId, 1 /* REMOTE_ACTION.CLOSE */, disposeReason);
+                            con.send(incomingKey, newChannelId, 1, disposeReason);
                             return;
                         }
-                        con.send(incomingKey, newChannelId, 2 /* REMOTE_ACTION.CREATE */, result.#state);
+                        con.send(incomingKey, newChannelId, 2, result.#state);
                         channelReady = true;
                         map.set(newChannelId, channel);
                         result.#innerEvents.once("dispose", onSourceDispose);
@@ -214,11 +216,11 @@ export default class RPCSource {
                         result.#innerEvents.on("state", onSourceState);
                     }
                     catch (error) {
-                        con.send(incomingKey, newChannelId, 1 /* REMOTE_ACTION.CLOSE */, error);
+                        con.send(incomingKey, newChannelId, 1, error);
                     }
                 }
                 catch {
-                    con.send(incomingKey, newChannelId, 1 /* REMOTE_ACTION.CLOSE */, "parse error");
+                    con.send(incomingKey, newChannelId, 1, "parse error");
                 }
                 return;
             }

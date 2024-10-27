@@ -59,10 +59,10 @@ class Connection {
 		return this.#deferred && !this.ready && !this.closed;
 	}
 	
-	defer(fn) {
+	defer(fn, ...args) {
 		this.#deferred = true;
 		try {
-			const result = fn.call(this, this);
+			const result = fn.call(this, this, ...args);
 			if (result && typeof result === "object" && "then" in result && typeof result.then === "function") {
 				return result.then((val) => {
 					if (this.deferred) this.open();
