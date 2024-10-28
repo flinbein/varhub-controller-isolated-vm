@@ -33,7 +33,7 @@ export default /* language=JavaScript */ `export default class EventEmitter {
         });
     }
     emit(eventName, ...args) {
-        let list = this.#eventMap[eventName];
+        let list = this.#eventMap[eventName]?.slice(0);
         if (!list || list.length === 0)
             return false;
         for (const { listener, once, context } of list) {
@@ -44,7 +44,7 @@ export default /* language=JavaScript */ `export default class EventEmitter {
         return true;
     }
     emitWithTry(eventName, ...args) {
-        let list = this.#eventMap[eventName];
+        let list = this.#eventMap[eventName]?.slice(0);
         if (!list || list.length === 0)
             return false;
         for (const { listener, once, context } of list)
