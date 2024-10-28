@@ -72,13 +72,11 @@ export default class RPCSource {
     setState(state) {
         if (this.disposed)
             throw new Error("disposed");
-        const oldState = this.#state;
-        const newState = typeof state === "function" ? state(oldState) : state;
-        const stateChanged = this.#state !== newState;
+        const newState = typeof state === "function" ? state(this.#state) : state;
+        if (this.#state === newState)
+            return this;
         this.#state = newState;
-        if (stateChanged) {
-            this.#innerEvents.emitWithTry("state", newState, oldState);
-        }
+        this.#innerEvents.emitWithTry("state", newState);
         return this;
     }
     withState(...stateArgs) {
@@ -91,11 +89,7 @@ export default class RPCSource {
         return this.#disposed;
     }
     emit(event, ...args) {
-        if (this.#disposed)
-            throw new Error("disposed");
-        const path = (typeof event === "string") ? [event] : event;
-        this.#innerEvents.emitWithTry("message", undefined, path, args);
-        return this;
+        return this.emitFor(undefined, event, ...args);
     }
     emitFor(predicate, event, ...args) {
         if (this.#disposed)
@@ -134,7 +128,7 @@ export default class RPCSource {
     static start(rpcSource, room, { maxChannelsPerClient = Infinity, key = "$rpc" } = {}) {
         const channels = new WeakMap;
         const onConnectionMessage = async (con, ...args) => {
-            if (args.length < 4)
+            if (args.length < 3)
                 return;
             const [incomingKey, channelId, operationId, ...msgArgs] = args;
             if (incomingKey !== key)
@@ -148,6 +142,15 @@ export default class RPCSource {
                 return;
             }
             if (operationId === 0) {
+                if (msgArgs.length === 0) {
+                    try {
+                        con.send(incomingKey, channelId, 2, source.state);
+                    }
+                    catch {
+                        con.send(incomingKey, channelId, 2, new Error("state parse error"));
+                    }
+                    return;
+                }
                 const [callId, path, callArgs] = msgArgs;
                 try {
                     try {
@@ -196,7 +199,12 @@ export default class RPCSource {
                             con.send(incomingKey, newChannelId, 4, path, args);
                         };
                         const onSourceState = (state) => {
-                            con.send(incomingKey, newChannelId, 2, state);
+                            try {
+                                con.send(incomingKey, newChannelId, 2, state);
+                            }
+                            catch {
+                                con.send(incomingKey, newChannelId, 2, new Error("state parse error"));
+                            }
                         };
                         const dispose = (reason) => {
                             result.#innerEvents.off("dispose", onSourceDispose);
@@ -209,7 +217,12 @@ export default class RPCSource {
                                 result.dispose(reason);
                         };
                         const channel = new RPCSourceChannel(result, con, dispose);
-                        con.send(incomingKey, newChannelId, 2, result.#state);
+                        try {
+                            con.send(incomingKey, newChannelId, 2, result.#state);
+                        }
+                        catch {
+                            con.send(incomingKey, newChannelId, 2, new Error("state parse error"));
+                        }
                         map.set(newChannelId, channel);
                         result.#innerEvents.once("dispose", onSourceDispose);
                         result.#innerEvents.on("message", onSourceMessage);
@@ -237,13 +250,24 @@ export default class RPCSource {
                 connection.send(key, undefined, 4, path, args);
             }
         };
+        const onMainRpcState = (state) => {
+            for (let connection of room.getConnections({ ready: true }))
+                try {
+                    connection.send(key, undefined, 2, state);
+                }
+                catch {
+                    connection.send(key, undefined, 2, new Error("state parse error"));
+                }
+        };
         room.on("connectionClose", clearChannelsForConnection);
         room.on("connectionMessage", onConnectionMessage);
         rpcSource.#innerEvents.on("message", onMainRpcSourceMessage);
+        rpcSource.#innerEvents.on("state", onMainRpcState);
         return function dispose() {
             room.off("connectionMessage", onConnectionMessage);
             room.off("connectionClose", clearChannelsForConnection);
             rpcSource.#innerEvents.off("message", onMainRpcSourceMessage);
+            rpcSource.#innerEvents.off("state", onMainRpcState);
             for (let connection of room.getConnections()) {
                 clearChannelsForConnection(connection);
             }
