@@ -32,52 +32,39 @@ class RPCSourceChannel {
 }
 export default class RPCSource {
     #handler;
+    #autoDispose = false;
     #innerEvents = new EventEmitter();
-    #events = new EventEmitter();
     #state;
-    on(eventName, handler) {
-        this.#events.on.call(this, eventName, handler);
-        return this;
-    }
-    once(eventName, handler) {
-        this.#events.on.call(this, eventName, handler);
-        return this;
-    }
-    off(eventName, handler) {
-        this.#events.on.call(this, eventName, handler);
-        return this;
-    }
     get state() { return this.#state; }
     constructor(handler, initialState) {
         this.#state = initialState;
-        if (typeof handler === "object") {
-            const form = handler;
-            handler = function (con, path, args, openChannel) {
-                let target = form;
-                for (let step of path) {
-                    if (typeof target !== "object")
-                        throw new Error("wrong path");
-                    if (!Object.keys(target).includes(step))
-                        throw new Error("wrong path");
-                    target = target[step];
-                }
-                if (openChannel && (target?.prototype instanceof RPCSource) && isESClass(target)) {
-                    const MetaConstructor = function (...args) {
-                        return Reflect.construct(target, args, MetaConstructor);
-                    };
-                    MetaConstructor.prototype = target.prototype;
-                    MetaConstructor.connection = con;
-                    MetaConstructor.autoClose = true;
-                    const result = MetaConstructor(...args);
-                    if (MetaConstructor.autoClose) {
-                        result.on("channelClose", (_channel, reason) => result.dispose(reason));
-                    }
-                    return result;
-                }
-                return target.apply(con, args);
-            };
-        }
+        if (typeof handler === "object")
+            handler = RPCSource.createDefaultHandler({ form: handler });
         this.#handler = handler;
+    }
+    static createDefaultHandler(parameters) {
+        return function (con, path, args, openChannel) {
+            let target = parameters?.form;
+            for (let step of path) {
+                if (typeof target !== "object")
+                    throw new Error("wrong path");
+                if (!Object.keys(target).includes(step))
+                    throw new Error("wrong path");
+                target = target[step];
+            }
+            if (openChannel && (target?.prototype instanceof RPCSource) && isESClass(target)) {
+                const MetaConstructor = function (...args) {
+                    return Reflect.construct(target, args, MetaConstructor);
+                };
+                MetaConstructor.prototype = target.prototype;
+                MetaConstructor.connection = con;
+                MetaConstructor.autoClose = true;
+                const result = MetaConstructor(...args);
+                result.#autoDispose = MetaConstructor.autoClose;
+                return result;
+            }
+            return target.apply(con, args);
+        };
     }
     withEventTypes() {
         return this;
@@ -91,7 +78,6 @@ export default class RPCSource {
         this.#state = newState;
         if (stateChanged) {
             this.#innerEvents.emitWithTry("state", newState, oldState);
-            this.#events.emitWithTry("state", newState, oldState);
         }
         return this;
     }
@@ -107,14 +93,39 @@ export default class RPCSource {
     emit(event, ...args) {
         if (this.#disposed)
             throw new Error("disposed");
-        this.#innerEvents.emitWithTry("message", event, args);
+        const path = (typeof event === "string") ? [event] : event;
+        this.#innerEvents.emitWithTry("message", undefined, path, args);
         return this;
+    }
+    emitFor(predicate, event, ...args) {
+        if (this.#disposed)
+            throw new Error("disposed");
+        const path = (typeof event === "string") ? [event] : event;
+        this.#innerEvents.emitWithTry("message", this.#getPredicateFilter(predicate), path, args);
+        return this;
+    }
+    #getPredicateFilter(predicate) {
+        if (predicate == null)
+            return;
+        if (typeof predicate === "function")
+            return predicate;
+        const matches = new Set();
+        const add = (param) => {
+            if (Symbol.iterator in param) {
+                for (let paramElement of param)
+                    add(paramElement);
+            }
+            else {
+                matches.add(param);
+            }
+        };
+        add(predicate);
+        return (c) => matches.has(c);
     }
     dispose(reason) {
         if (this.#disposed)
             return;
         this.#disposed = true;
-        this.#events.emitWithTry("dispose", reason);
         this.#innerEvents.emitWithTry("dispose", reason);
     }
     [Symbol.dispose]() {
@@ -157,9 +168,7 @@ export default class RPCSource {
             if (operationId === 1) {
                 const reason = msgArgs[0];
                 const channel = channels.get(con)?.get(channelId);
-                const deleted = channels.get(con)?.delete(channelId);
-                if (channel && deleted)
-                    source.#events.emitWithTry("channelClose", channel, reason);
+                channels.get(con)?.delete(channelId);
                 channel?.close(reason);
                 return;
             }
@@ -181,35 +190,26 @@ export default class RPCSource {
                             con.send(incomingKey, newChannelId, 1, disposeReason);
                             channels.get(con)?.delete(newChannelId);
                         };
-                        const onSourceMessage = (path, args) => {
-                            if (!Array.isArray(path))
-                                path = [path];
+                        const onSourceMessage = (filter, path, args) => {
+                            if (filter && !filter(con))
+                                return;
                             con.send(incomingKey, newChannelId, 4, path, args);
                         };
                         const onSourceState = (state) => {
                             con.send(incomingKey, newChannelId, 2, state);
                         };
-                        let disposeReason;
                         const dispose = (reason) => {
-                            disposeReason = reason;
                             result.#innerEvents.off("dispose", onSourceDispose);
                             result.#innerEvents.off("message", onSourceMessage);
                             result.#innerEvents.off("state", onSourceState);
-                            if (!channelReady)
-                                return;
                             const deleted = channels.get(con)?.delete(newChannelId);
                             if (deleted)
                                 con.send(incomingKey, newChannelId, 1, reason);
+                            if (result.#autoDispose)
+                                result.dispose(reason);
                         };
-                        let channelReady = false;
                         const channel = new RPCSourceChannel(result, con, dispose);
-                        result.#events.emitWithTry("channelOpen", channel);
-                        if (channel.closed) {
-                            con.send(incomingKey, newChannelId, 1, disposeReason);
-                            return;
-                        }
                         con.send(incomingKey, newChannelId, 2, result.#state);
-                        channelReady = true;
                         map.set(newChannelId, channel);
                         result.#innerEvents.once("dispose", onSourceDispose);
                         result.#innerEvents.on("message", onSourceMessage);
@@ -230,10 +230,12 @@ export default class RPCSource {
                 channel.close();
             }
         };
-        const onMainRpcSourceMessage = (path, args) => {
-            if (!Array.isArray(path))
-                path = [path];
-            room.broadcast(key, undefined, 4, path, args);
+        const onMainRpcSourceMessage = (filter, path, args) => {
+            for (let connection of room.getConnections({ ready: true })) {
+                if (filter && !filter(connection))
+                    continue;
+                connection.send(key, undefined, 4, path, args);
+            }
         };
         room.on("connectionClose", clearChannelsForConnection);
         room.on("connectionMessage", onConnectionMessage);
@@ -247,5 +249,4 @@ export default class RPCSource {
             }
         };
     }
-}
-`;
+}`;

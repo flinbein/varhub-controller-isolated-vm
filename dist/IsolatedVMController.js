@@ -3,14 +3,15 @@ import { IsolatedVMProgram } from "./IsolatedVMProgram.js";
 import { parseDescriptor, joinDescriptor } from "./util/DescriptorUtils.js";
 import { RoomModuleHelper } from "./RoomModuleHelper.js";
 import eventEmitterSource from "./innerSource/EventEmitterSource.js";
-import rpcSource from "./innerSource/RPCSource.js";
+import { rpcSourceInner, rpcSourceModified } from "./innerSource/RpcSourceModified.js";
 import playersSource from "./innerSource/PlayersSource.js";
 import { PerformanceModuleHelper } from "./PerformanceModuleHelper.js";
 import { ApiModuleHelper } from "./ApiModuleHelper.js";
 const defaultExtensions = ["js", "mjs", "json", "json5"];
 const baseModules = {
     "varhub:events": { type: "js", text: eventEmitterSource },
-    "varhub:rpc": { type: "js", text: rpcSource },
+    "varhub:rpc": { type: "js", text: rpcSourceModified },
+    "varhub:rpc#inner": { type: "js", text: rpcSourceInner },
     "varhub:players": { type: "js", text: playersSource },
 };
 export class IsolatedVMController extends TypedEventEmitter {

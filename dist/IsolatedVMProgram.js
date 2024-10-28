@@ -38,10 +38,9 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         this.#getPropRef = safeContext.evalSync(`(m,k)=>m[k]`, { reference: true });
         this.#constructRef = safeContext.evalSync(`(c,...a)=>new c(...a)`, { reference: true });
         this.#startRpcRef = this.#context.evalSync(/* language=javascript */ `
-            (RPCSource, room, module) => {
-                const current = new RPCSource(module);
-                Object.defineProperty(RPCSource, "current", {get: () => current});
-                RPCSource.start(current, room);
+            (rpcModule, roomModule, mainModule, rpcInnerModule) => {
+                rpcInnerModule.default.form = mainModule;
+                rpcModule.default.start(rpcModule.default.default, roomModule.default);
 			}
 		`, { reference: true });
         this.#wrapMaybeAsyncRef = this.#safeContext.evalSync(/* language=javascript */ `
@@ -74,10 +73,9 @@ export class IsolatedVMProgram extends TypedEventEmitter {
         const asRef = { result: { reference: true }, reference: true };
         const sourceModule = await this.#getIsolatedModule(moduleName);
         const rpcModule = await this.#getIsolatedModule("varhub:rpc");
+        const rpcInnerModule = await this.#getIsolatedModule("varhub:rpc#inner");
         const roomModule = await this.#getIsolatedModule("varhub:room");
-        const rpcConstructorRef = await rpcModule.namespace.get("default", asRef);
-        const roomRef = await roomModule.namespace.get("default", asRef);
-        await this.#startRpcRef.apply(undefined, [rpcConstructorRef.derefInto({ release: true }), roomRef.derefInto({ release: true }), sourceModule.namespace.derefInto()], asRef);
+        await this.#startRpcRef.apply(undefined, [rpcModule.namespace.derefInto({ release: true }), roomModule.namespace.derefInto({ release: true }), sourceModule.namespace.derefInto(), rpcInnerModule.namespace.derefInto()], asRef);
     }
     createMaybeAsyncFunctionDeref(fn, opts) {
         const callFn = (...args) => {

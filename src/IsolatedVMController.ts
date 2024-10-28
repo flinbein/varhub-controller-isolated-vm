@@ -3,7 +3,7 @@ import { IsolatedVMProgram, ProgramModule } from "./IsolatedVMProgram.js";
 import { parseDescriptor, joinDescriptor } from "./util/DescriptorUtils.js";
 import { RoomModuleHelper } from "./RoomModuleHelper.js";
 import eventEmitterSource from "./innerSource/EventEmitterSource.js";
-import rpcSource from "./innerSource/RPCSource.js";
+import {rpcSourceInner, rpcSourceModified} from "./innerSource/RpcSourceModified.js";
 import playersSource from "./innerSource/PlayersSource.js";
 import { PerformanceModuleHelper } from "./PerformanceModuleHelper.js";
 import { ApiModuleHelper } from "./ApiModuleHelper.js";
@@ -27,7 +27,8 @@ export interface ControllerOptions {
 const defaultExtensions = ["js", "mjs", "json", "json5"];
 const baseModules: Partial<Record<string, {type: string, text: string}>> = {
 	"varhub:events": { type: "js", text: eventEmitterSource },
-	"varhub:rpc": { type: "js", text: rpcSource },
+	"varhub:rpc": { type: "js", text: rpcSourceModified },
+	"varhub:rpc#inner": { type: "js", text: rpcSourceInner },
 	"varhub:players": { type: "js", text: playersSource },
 }
 

@@ -1,4 +1,4 @@
-export default /*language=javascript*/ `import EventEmitter from "varhub:events";
+export default /* language=javascript */ `import EventEmitter from "varhub:events";
 export default class Players {
     #playerMap = new Map();
     #playerConnections = new WeakMap();
@@ -139,7 +139,7 @@ class Player {
     get online() { return this.#controller.getConnectionsOf(this).size > 0; }
     get registered() { return this.#controller.isRegistered(this); }
     get group() { return this.#controller.getGroupOf(this); }
-    set group(value) { this.#controller.setGroupOf(this, value); }
+    setGroup(value) { this.#controller.setGroupOf(this, value); return this; }
     on(eventName, handler) {
         this.#eventBox.on.call(this, eventName, handler);
         return this;
