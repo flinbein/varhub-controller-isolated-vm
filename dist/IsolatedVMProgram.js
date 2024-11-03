@@ -239,7 +239,7 @@ export class ProgramModule {
     callMethodIgnored(prop, thisValue, ...args) {
         this.#module.namespace.get(prop, { reference: true }).then(methodRef => {
             methodRef.applyIgnored(thisValue, args, { arguments: { copy: true } });
-        });
+        }).catch(() => { });
     }
     async getProp(prop) {
         return this.#module.namespace.get(prop, { copy: true });

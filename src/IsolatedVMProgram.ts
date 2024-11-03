@@ -290,7 +290,7 @@ export class ProgramModule {
 	callMethodIgnored(prop: string, thisValue?: any, ...args: any[]): void {
 		this.#module.namespace.get(prop, {reference: true}).then(methodRef => {
 			methodRef.applyIgnored(thisValue, args, {arguments: {copy: true}});
-		});
+		}).catch(() => {});
 	}
 	
 	async getProp(prop: string): Promise<any> {
