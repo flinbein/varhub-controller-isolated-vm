@@ -6,6 +6,8 @@ export default class Players {
     #playerEvents = new WeakMap();
     #connectionPlayerNameMap = new WeakMap();
     #registerPlayer;
+    #events = new EventEmitter();
+    #room;
     #controller = {
         isRegistered: (player) => this.#playerMap.get(player.name) === player,
         getGroupOf: (player) => this.#playerGroups.get(player),
@@ -29,13 +31,16 @@ export default class Players {
             this.#events.emitWithTry("leave", player);
         }
     };
-    #events = new EventEmitter();
     constructor(room, registerPlayerHandler) {
         this.#registerPlayer = registerPlayerHandler;
+        this.#room = room;
         room.on("connection", this.#onConnection);
         room.on("connectionOpen", this.#onConnectionOpen);
+        room.on("connectionMessage", this.#onConnectionMessage);
         room.on("connectionClose", this.#onConnectionClose);
     }
+    get room() { return this.#room; }
+    ;
     #onConnection = async (connection, ...args) => {
         let registerResult;
         try {
@@ -76,6 +81,11 @@ export default class Players {
         this.#playerConnections.set(player, new Set([connection]));
         this.#playerMap.set(playerName, player);
         this.#events.emitWithTry("join", player);
+    };
+    #onConnectionMessage = (connection, ...args) => {
+        const player = this.get(connection);
+        if (player)
+            this.#playerEvents.get(player)?.emitWithTry("connectionMessage", connection, ...args);
     };
     #onConnectionClose = (connection) => {
         const playerName = this.#connectionPlayerNameMap.get(connection);
@@ -140,6 +150,12 @@ class Player {
     get registered() { return this.#controller.isRegistered(this); }
     get group() { return this.#controller.getGroupOf(this); }
     setGroup(value) { this.#controller.setGroupOf(this, value); return this; }
+    send(...args) {
+        for (let connection of this.connections) {
+            connection.send(...args);
+        }
+        return this;
+    }
     on(eventName, handler) {
         this.#eventBox.on.call(this, eventName, handler);
         return this;
