@@ -81,8 +81,10 @@ export default class RPCSource {
 				target = target[step];
 			}
 			if (openChannel && args.length === 0) {
-				if (target instanceof RPCSource) return target;
-				if (typeof target?.then === "function") return target;
+				if (target instanceof RPCSource)
+					return target;
+				if (typeof target?.then === "function")
+					return target;
 			}
 			if (openChannel && (target?.prototype instanceof RPCSource) && isESClass(target)) {
 				const MetaConstructor = function (...args) {
@@ -132,7 +134,7 @@ export default class RPCSource {
 	emitFor(predicate, event, ...args) {
 		if (this.#disposed)
 			throw new Error("disposed");
-		const path = (typeof event === "string") ? [event] : event;
+		const path = (typeof event === "string" || typeof event === "number") ? [event] : event;
 		this.#innerEvents.emitWithTry("message", this.#getPredicateFilter(predicate), path, args);
 		return this;
 	}
