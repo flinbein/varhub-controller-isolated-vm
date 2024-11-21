@@ -6,7 +6,7 @@ const room = Object.freeze({
 	get closed(){return false},
 	get id(){return "unknown"},
 	get integrity(){return "unknown"},
-	then(...args){return roomResultPromise.then(...args)},
+	get promise(){return roomResultPromise},
 	destroy: $.destroy,
 	broadcast(...args){$.broadcast(...args); return this},
 	getConnections,
