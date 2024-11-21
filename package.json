@@ -1,6 +1,6 @@
 {
   "name": "@flinbein/varhub-controller-isolated-vm",
-  "version": "2.2.12",
+  "version": "2.2.13",
   "description": "",
   "type": "module",
   "types": "./src/index.ts",

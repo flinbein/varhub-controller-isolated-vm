@@ -43,8 +43,8 @@ class Connection {
 		this.#emitter.on("close", (reason) => this.#initResolver.reject(reason));
 	}
 	
-	then(onfulfilled, onrejected){
-		return this.#initResolver.promise.then(() => [this]).then(onfulfilled, onrejected);
+	get promise(){
+		return this.#initResolver.promise;
 	}
 	
 	get parameters() {
