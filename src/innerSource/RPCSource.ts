@@ -181,6 +181,13 @@ export default class RPCSource {
 				}
 				return;
 			}
+			if (operationId === 3) {
+				const [path, callArgs] = msgArgs;
+				try {
+					source.#handler(con, path, callArgs, false);
+				}
+				catch { }
+			}
 			if (operationId === 0) {
 				if (msgArgs.length === 0) {
 					try {
