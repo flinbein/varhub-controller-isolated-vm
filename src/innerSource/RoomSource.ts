@@ -1,4 +1,4 @@
-export const roomSource: string = /* language=JavaScript */ `import {$, roomEmitter, getConnections} from "#inner";
+export const roomSource: string = /* language=JavaScript */ `import {$, roomEmitter, getConnections, validate} from "#inner";
 const room = Object.freeze({
 	get message(){return $.getRoomMessage()},
 	set message(message){$.setRoomMessage(message)},
@@ -7,12 +7,14 @@ const room = Object.freeze({
 	get id(){return "unknown"},
 	get integrity(){return "unknown"},
 	get promise(){return roomResultPromise},
+	withType(){return this},
+	validate(...args){validate(...args); return this},
 	destroy: $.destroy,
 	broadcast(...args){$.broadcast(...args); return this},
 	getConnections,
-	on(...args){ roomEmitter.on.apply(this, args)},
-	once(...args){ roomEmitter.once.apply(this, args)},
-	off(...args){ roomEmitter.off.apply(this, args)},
+	on(...args){ return roomEmitter.on.apply(this, args)},
+	once(...args){ return roomEmitter.once.apply(this, args)},
+	off(...args){ return roomEmitter.off.apply(this, args)},
 	[Symbol.dispose](){this.destroy()},
 	[Symbol.asyncDispose](){this.destroy(); return Promise.resolve()}
 })
@@ -27,6 +29,8 @@ export const /** @type {Node.EventEmitter} */ roomEmitter = new EventEmitter();
 const /** @type {Map<number, Connection>} */ connections = new Map();
 const /** @type {WeakSet<Connection>} */ readyConnections = new WeakSet();
 const /** @type {WeakMap<Connection, EventEmitter>} */ connectionEmitters = new WeakMap();
+let /** @type {Function|undefined} */ clientMessageValidator;
+let /** @type {Function|undefined} */ parametersValidator;
 class Connection {
 	#id;
 	#parameters;
@@ -112,6 +116,17 @@ class Connection {
 }
 
 export const onEnter = (conId, ...args) => {
+	if (!parametersValidator) return handleEnter(conId, ...args);
+	try {
+		const validateResult = parametersValidator(args);
+		if (!validateResult) return $.kick(conId, "invalid parameters");
+		handleEnter(conId, ...(Array.isArray(validateResult) ? validateResult : args));
+	} catch {
+		$.kick(conId, "invalid parameters");
+	}
+}
+
+function handleEnter(conId, ...args) {
 	const connection = new Connection(conId, args);
 	connections.set(conId, connection);
 	roomEmitter.emitWithTry("connection", connection, ...args);
@@ -142,6 +157,17 @@ export const onClose = (conId, wasReady, reason) => {
 }
 
 export const onMessage = (conId, ...args) => {
+	if (!clientMessageValidator) return handleMessage(conId, ...args);
+	try {
+		const validateResult = clientMessageValidator(args);
+		if (!validateResult) return $.kick(conId, "invalid message");
+		handleMessage(conId, ...(Array.isArray(validateResult) ? validateResult : args));
+	} catch {
+		$.kick(conId, "invalid message");
+	}
+}
+
+function handleMessage(conId, ...args){
 	let connection = connections.get(conId);
 	if (!connection) {
 		connection = new Connection(conId);
@@ -159,4 +185,9 @@ export const getConnections = (options) => {
 		}
 		return true;
 	}));
+}
+
+export function validate({clientMessage, parameters}){
+	clientMessageValidator = clientMessage;
+	parametersValidator = parameters;
 }`;

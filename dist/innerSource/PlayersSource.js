@@ -40,7 +40,7 @@ export default class Players {
 		room.on("connectionClose", this.#onConnectionClose);
 	}
 	get room() { return this.#room; }
-	;
+	withType(){ return this; }
 	#onConnection = async (connection, ...args) => {
 		let registerResult;
 		try {
