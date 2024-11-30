@@ -100,10 +100,31 @@ export default class RPCSource {
 			return target.apply(con, args);
 		};
 	}
-	bindConnection(handler) {
-		const that = this;
+	static unbind(handler, thisVal) {
 		return function (...args) {
-			return handler.call(that, this, ...args);
+			return handler.call(thisVal, this, ...args);
+		};
+	}
+	static validate(validator, handler) {
+		return function (...args) {
+			const validateResult = validator(args);
+			if (Array.isArray(validateResult)) {
+				return handler.call(this, ...validateResult);
+			}
+			if (!validateResult)
+				throw new Error("invalid parameters");
+			return handler.call(this, ...args);
+		};
+	}
+	static validateUnbind(validator, handler, thisVal) {
+		return function (...args) {
+			const validateResult = validator(args);
+			if (Array.isArray(validateResult)) {
+				return handler.call(thisVal, this, ...validateResult);
+			}
+			if (!validateResult)
+				throw new Error("invalid parameters");
+			return handler.call(thisVal, this, ...args);
 		};
 	}
 	withEventTypes() {
